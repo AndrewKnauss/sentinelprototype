@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://dcm0o0ih5r2ju"]
+
+[ext_resource type="Script" uid="uid://d3repjql3sb3b" path="res://scripts/server/ServerWorld.gd" id="1_bp542"]
+
+[node name="ServerWorld" type="Node2D"]
+script = ExtResource("1_bp542")
