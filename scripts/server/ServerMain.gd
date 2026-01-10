@@ -4,278 +4,313 @@ class_name ServerMain
 # =============================================================================
 # ServerMain.gd
 # =============================================================================
-# LONG DESCRIPTION:
-# This is the authoritative server gameplay controller.
-#
-# Responsibilities:
-# 1) Maintain the authoritative set of entities (players) on the server.
-# 2) Receive input commands from clients (via Net.input_received signal).
-# 3) Simulate movement authoritatively each physics tick using the latest input.
-# 4) Replicate the world to clients:
-#    - Spawn/despawn events (reliable)
-#    - Snapshots of all player states (unreliable, frequent)
-#    - Acknowledgements of processed input sequence numbers (unreliable, frequent)
-#
-# What ServerMain does NOT do:
-# - interpolation (client-only)
-# - prediction (client-only)
-# - UI
-#
-# In a bigger game, this is where you'd add:
-# - authoritative combat resolution
-# - inventory changes, crafting
-# - AI/machines
-# - heat/bounty logic (authoritative)
+# Authoritative server with players, enemies, bullets, and walls.
 # =============================================================================
 
-# Spawn area helper (you already adjusted this so it's on-screen).
-const SPAWN_MIN_X: int = 100
-const SPAWN_MAX_X: int = 220
-const SPAWN_MIN_Y: int = 100
-const SPAWN_MAX_Y: int = 160
+var _world: Node2D
+var _players: Dictionary = {}  # peer_id -> Player
+var _enemies: Array = []  # Array of Enemy
+var _walls: Array = []  # Array of Wall
+var _bullets: Array = []  # Array of Bullet
 
-# Root node that holds Player nodes.
-var _players_root: Node2D
-
-# peer_id -> Player node (authoritative entities)
-var _players: Dictionary = {}
-
-# peer_id -> latest input cmd (Dictionary). Empty dict means "no input yet".
-var _last_input: Dictionary = {}
-
-# peer_id -> last accepted input sequence number.
-# This is what we send back to each client as ack_seq.
-var _last_seq: Dictionary = {}
-
-# A monotonically increasing server tick counter.
-# Used for interpolation and debugging.
+var _last_input: Dictionary = {}  # peer_id -> cmd
+var _last_seq: Dictionary = {}  # peer_id -> int
 var _server_tick: int = 0
 
+const ENEMY_SPAWN_POSITIONS = [
+	Vector2(200, 200),
+	Vector2(600, 200),
+	Vector2(400, 400)
+]
 
-# -----------------------------------------------------------------------------
-# _ready()
-# -----------------------------------------------------------------------------
-# PURPOSE:
-# - Create a Players container node.
-# - Connect Net signals so we receive peer connect/disconnect and input events.
-#
-# WHERE CALLED:
-# - Godot calls _ready() once when the node enters the scene tree.
-#
-# RETURNS:
-# - Nothing.
-# -----------------------------------------------------------------------------
+
 func _ready() -> void:
 	randomize()
-
-	_players_root = Node2D.new()
-	_players_root.name = "Players"
-	add_child(_players_root)
-
-	var title: Label = Label.new()
+	
+	_world = Node2D.new()
+	_world.name = "World"
+	add_child(_world)
+	
+	var title = Label.new()
 	title.text = "SERVER"
 	title.position = Vector2(10, 10)
 	add_child(title)
-
-	# Listen to networking events from the Net AutoLoad.
+	
 	Net.peer_connected.connect(_on_peer_connected)
 	Net.peer_disconnected.connect(_on_peer_disconnected)
 	Net.input_received.connect(_on_input_received)
+	
+	# Spawn initial enemies
+	for pos in ENEMY_SPAWN_POSITIONS:
+		_spawn_enemy(pos)
 
 
-# -----------------------------------------------------------------------------
-# _physics_process(delta)
-# -----------------------------------------------------------------------------
-# PURPOSE:
-# - Run the authoritative simulation at the physics tick rate.
-# - Build and broadcast snapshots + acks.
-#
-# WHERE CALLED:
-# - Godot calls _physics_process() every physics frame.
-#
-# RETURNS:
-# - Nothing.
-#
-# NOTE:
-# - For now we snapshot every physics tick.
-# - Later you might snapshot at 20Hz and simulate at 60Hz.
-# -----------------------------------------------------------------------------
 func _physics_process(_delta: float) -> void:
 	if not Net.is_server():
 		return
-
+	
 	_server_tick += 1
-
-	# If nobody connected, there's nothing to replicate.
-	# We still tick the server counter for consistent timing.
-	if Net.get_peers().is_empty():
-		return
-
-	var dt: float = 1.0 / float(Engine.physics_ticks_per_second)
-
-	# -------------------------------------------------------------------------
-	# 1) Authoritative simulation: apply latest input to each player.
-	# -------------------------------------------------------------------------
-	for id_var in _players.keys():
-		var peer_id: int = int(id_var)
-		var p: Player = _players[peer_id] as Player
-
-		var cmd: Dictionary = (_last_input.get(peer_id, {}) as Dictionary)
-
-		var mv: Vector2 = Vector2.ZERO
-		var aim: Vector2 = Vector2.ZERO
-		var btn: int = 0
-
+	var dt = GameConstants.FIXED_DELTA
+	
+	# 1. Simulate all players
+	for peer_id in _players:
+		var player = _players[peer_id]
+		var cmd = _last_input.get(peer_id, {})
+		
 		if not cmd.is_empty():
-			mv = cmd.get("mv", Vector2.ZERO)
-			aim = cmd.get("aim", Vector2.ZERO)
-			btn = int(cmd.get("btn", 0))
+			var mv = cmd.get("mv", Vector2.ZERO)
+			var aim = cmd.get("aim", Vector2.ZERO)
+			var btn = cmd.get("btn", 0)
+			
+			player.apply_input(mv, aim, btn, dt)
+			
+			# Shooting
+			if btn & GameConstants.BTN_SHOOT and player.shoot():
+				_spawn_bullet(player.global_position, aim, peer_id)
+			
+			# Building
+			if btn & GameConstants.BTN_BUILD:
+				_try_build_wall(player, aim)
+	
+	# 2. Simulate enemies (shoot at players)
+	for enemy in _enemies:
+		if enemy and is_instance_valid(enemy) and enemy.shoot():
+			var aim_dir = Vector2.RIGHT.rotated(enemy.rotation)
+			_spawn_bullet(enemy.global_position, aim_dir, 0)  # 0 = enemy owner
+	
+	# 3. Check bullet collisions
+	_process_bullets(dt)
+	
+	# 4. Replicate
+	if not Net.get_peers().is_empty():
+		var snapshot = Replication.build_snapshot()
+		snapshot["tick"] = _server_tick
+		Net.client_receive_snapshot.rpc(snapshot)
+		
+		for peer_id in Net.get_peers():
+			var ack = {
+				"tick": _server_tick,
+				"ack_seq": _last_seq.get(peer_id, 0)
+			}
+			Net.client_receive_ack.rpc_id(peer_id, ack)
 
-		p.apply_input(mv, aim, btn, dt)
 
-	# -------------------------------------------------------------------------
-	# 2) Build snapshot: "photo" of world state (all players).
-	# -------------------------------------------------------------------------
-	var snap: Dictionary = {"tick": _server_tick, "states": {}}
-	var states: Dictionary = snap["states"] as Dictionary
+func _process_bullets(dt: float) -> void:
+	for bullet in _bullets:
+		if not is_instance_valid(bullet):
+			continue
+		
+		# Check hits
+		var space = get_world_2d().direct_space_state
+		var query = PhysicsRayQueryParameters2D.create(
+			bullet.global_position,
+			bullet.global_position + bullet.velocity.normalized() * 10
+		)
+		query.collision_mask = 2  # Check walls
+		query.exclude = [bullet]
+		
+		var result = space.intersect_ray(query)
+		
+		# Check wall collision
+		if result:
+			var collider = result.get("collider")
+			if collider and collider.get_parent() is Wall:
+				var wall = collider.get_parent() as Wall
+				if wall.take_damage(GameConstants.BULLET_DAMAGE):
+					_despawn_wall(wall)
+				bullet.queue_free()
+				continue
+		
+		# Check player/enemy collision
+		var hit_something = false
+		for player in _players.values():
+			if player.global_position.distance_to(bullet.global_position) < 16:
+				if bullet.owner_id != player.net_id:  # Don't hit self
+					if player.take_damage(GameConstants.BULLET_DAMAGE):
+						_respawn_player(player)
+					bullet.queue_free()
+					hit_something = true
+					break
+		
+		if hit_something:
+			continue
+		
+		for enemy in _enemies:
+			if enemy and is_instance_valid(enemy):
+				if enemy.global_position.distance_to(bullet.global_position) < 20:
+					if bullet.owner_id != 0:  # Players can hit enemies
+						if enemy.take_damage(GameConstants.BULLET_DAMAGE):
+							_respawn_enemy(enemy)
+						bullet.queue_free()
+						break
 
-	for id_var in _players.keys():
-		var peer_id: int = int(id_var)
-		var pp: Player = _players[peer_id] as Player
-		states[peer_id] = pp.get_state()
 
-	# Broadcast snapshot to all clients (unreliable).
-	Net.client_receive_snapshot.rpc(snap)
-
-	# -------------------------------------------------------------------------
-	# 3) Send acks: tell each client which input seq we have processed.
-	# -------------------------------------------------------------------------
-	for peer_id_var in Net.get_peers():
-		var peer_id: int = int(peer_id_var)
-		var ack: Dictionary = {
-			"tick": _server_tick,
-			"ack_seq": int(_last_seq.get(peer_id, 0))
-		}
-		Net.client_receive_ack.rpc_id(peer_id, ack)
+func _spawn_bullet(pos: Vector2, dir: Vector2, owner: int) -> void:
+	var bullet = Bullet.new()
+	bullet.net_id = Replication.generate_id()
+	bullet.authority = 1
+	bullet.initialize(pos, dir.normalized(), owner)
+	_world.add_child(bullet)
+	_bullets.append(bullet)
+	
+	# Tell clients
+	Net.spawn_entity.rpc({
+		"type": "bullet",
+		"net_id": bullet.net_id,
+		"pos": pos,
+		"extra": {"dir": dir.normalized(), "owner": owner}
+	})
 
 
-# -----------------------------------------------------------------------------
-# _on_peer_connected(peer_id)
-# -----------------------------------------------------------------------------
-# PURPOSE:
-# - Server-side: create an authoritative Player for the new connection.
-# - Perform late-join replication:
-#   (A) New peer receives spawns for ALL existing players (full roster).
-#   (B) Existing peers receive spawn for the new player.
-#
-# WHERE CALLED:
-# - Net emits peer_connected(peer_id) when ENet accepts a new connection.
-#
-# RETURNS:
-# - Nothing.
-#
-# WHY:
-# - Ensures every client ends up with the same set of player entities.
-# -----------------------------------------------------------------------------
+func _spawn_enemy(pos: Vector2) -> void:
+	var enemy = Enemy.new()
+	enemy.net_id = Replication.generate_id()
+	enemy.authority = 1
+	enemy.global_position = pos
+	enemy.died.connect(func(_id): _respawn_enemy(enemy))
+	_world.add_child(enemy)
+	_enemies.append(enemy)
+	
+	# Tell clients
+	Net.spawn_entity.rpc({
+		"type": "enemy",
+		"net_id": enemy.net_id,
+		"pos": pos,
+		"extra": {}
+	})
+
+
+func _respawn_enemy(enemy: Enemy) -> void:
+	# Despawn
+	Net.despawn_entity.rpc(enemy.net_id)
+	enemy.queue_free()
+	_enemies.erase(enemy)
+	
+	# Respawn after delay
+	await get_tree().create_timer(GameConstants.ENEMY_RESPAWN_TIME).timeout
+	var spawn_pos = ENEMY_SPAWN_POSITIONS[randi() % ENEMY_SPAWN_POSITIONS.size()]
+	_spawn_enemy(spawn_pos)
+
+
+func _try_build_wall(player: Player, aim_dir: Vector2) -> void:
+	# Place wall in front of player
+	var wall_pos = player.global_position + aim_dir.normalized() * GameConstants.WALL_BUILD_RANGE
+	
+	# Snap to grid
+	wall_pos.x = floor(wall_pos.x / 64) * 64 + 32
+	wall_pos.y = floor(wall_pos.y / 64) * 64 + 32
+	
+	# Check if space is clear
+	for wall in _walls:
+		if wall.global_position.distance_to(wall_pos) < 32:
+			return  # Too close to existing wall
+	
+	var wall = Wall.new()
+	wall.net_id = Replication.generate_id()
+	wall.authority = 1
+	wall.global_position = wall_pos
+	wall.builder_id = player.net_id
+	wall.destroyed.connect(func(_id): _despawn_wall(wall))
+	_world.add_child(wall)
+	_walls.append(wall)
+	
+	# Tell clients
+	Net.spawn_entity.rpc({
+		"type": "wall",
+		"net_id": wall.net_id,
+		"pos": wall_pos,
+		"extra": {"builder": player.net_id}
+	})
+
+
+func _despawn_wall(wall: Wall) -> void:
+	Net.despawn_entity.rpc(wall.net_id)
+	wall.queue_free()
+	_walls.erase(wall)
+
+
 func _on_peer_connected(peer_id: int) -> void:
 	print("Server: peer connected: ", peer_id)
-
-	# Create authoritative player entity for this peer.
-	var p: Player = Player.new()
-	p.net_id = peer_id
-	p.is_local = false
-	p.global_position = Vector2(randi_range(SPAWN_MIN_X, SPAWN_MAX_X), randi_range(SPAWN_MIN_Y, SPAWN_MAX_Y))
-	_players_root.add_child(p)
-
-	_players[peer_id] = p
-	_last_input[peer_id] = {} # empty dict => no input yet
+	
+	var spawn_pos = Vector2(
+		randf_range(GameConstants.SPAWN_MIN.x, GameConstants.SPAWN_MAX.x),
+		randf_range(GameConstants.SPAWN_MIN.y, GameConstants.SPAWN_MAX.y)
+	)
+	
+	var player = Player.new()
+	player.net_id = peer_id
+	player.authority = 1  # Server authoritative
+	player.global_position = spawn_pos
+	_world.add_child(player)
+	_players[peer_id] = player
+	_last_input[peer_id] = {}
 	_last_seq[peer_id] = 0
-
-	# (A) Send the new peer ALL existing players (including itself).
-	for id_var in _players.keys():
-		var id: int = int(id_var)
-		var existing: Player = _players[id] as Player
-		var payload_to_new: Dictionary = {"peer_id": id, "state": existing.get_state()}
-		Net.client_spawn_player.rpc_id(peer_id, payload_to_new)
-
-	# (B) Send everyone else the NEW player.
-	var payload_new: Dictionary = {"peer_id": peer_id, "state": p.get_state()}
-	for other_id_var in Net.get_peers():
-		var other_id: int = int(other_id_var)
+	
+	# Send new peer all existing entities
+	for id in _players:
+		var p = _players[id]
+		Net.client_spawn_player.rpc_id(peer_id, {
+			"peer_id": id,
+			"state": p.get_replicated_state()
+		})
+	
+	for enemy in _enemies:
+		if is_instance_valid(enemy):
+			Net.spawn_entity.rpc_id(peer_id, {
+				"type": "enemy",
+				"net_id": enemy.net_id,
+				"pos": enemy.global_position,
+				"extra": {}
+			})
+	
+	for wall in _walls:
+		if is_instance_valid(wall):
+			Net.spawn_entity.rpc_id(peer_id, {
+				"type": "wall",
+				"net_id": wall.net_id,
+				"pos": wall.global_position,
+				"extra": {"builder": wall.builder_id}
+			})
+	
+	# Tell other peers about new player
+	for other_id in Net.get_peers():
 		if other_id != peer_id:
-			Net.client_spawn_player.rpc_id(other_id, payload_new)
+			Net.client_spawn_player.rpc_id(other_id, {
+				"peer_id": peer_id,
+				"state": player.get_replicated_state()
+			})
 
 
-# -----------------------------------------------------------------------------
-# _on_peer_disconnected(peer_id)
-# -----------------------------------------------------------------------------
-# PURPOSE:
-# - Server-side cleanup when a peer disconnects.
-# - Remove authoritative entity and broadcast despawn to clients.
-#
-# WHERE CALLED:
-# - Net emits peer_disconnected(peer_id) when a connection is lost/closed.
-#
-# RETURNS:
-# - Nothing.
-# -----------------------------------------------------------------------------
 func _on_peer_disconnected(peer_id: int) -> void:
 	print("Server: peer disconnected: ", peer_id)
-
+	
 	if _players.has(peer_id):
-		var p: Player = _players[peer_id] as Player
-		p.queue_free()
+		_players[peer_id].queue_free()
 		_players.erase(peer_id)
-
+	
 	_last_input.erase(peer_id)
 	_last_seq.erase(peer_id)
-
+	
 	Net.client_despawn_player.rpc(peer_id)
 
 
-# -----------------------------------------------------------------------------
-# _on_input_received(peer_id, cmd)
-# -----------------------------------------------------------------------------
-# PURPOSE:
-# - Receive input command from a client, validate it, and store it.
-#
-# WHERE CALLED:
-# - Net emits input_received(peer_id, cmd) when server_receive_input RPC is called.
-#
-# RETURNS:
-# - Nothing.
-#
-# VALIDATION:
-# - Requires cmd has "seq" and "mv".
-# - Enforces monotonically increasing seq per peer.
-#
-# WHY:
-# - seq protects against reordering/duplication and supports client reconciliation.
-# -----------------------------------------------------------------------------
 func _on_input_received(peer_id: int, cmd: Dictionary) -> void:
 	if not cmd.has("seq") or not cmd.has("mv"):
 		return
-
-	var seq: int = int(cmd.get("seq", 0))
-	var last: int = int(_last_seq.get(peer_id, 0))
+	
+	var seq = cmd.get("seq", 0)
+	var last = _last_seq.get(peer_id, 0)
+	
 	if seq <= last:
 		return
-
+	
 	_last_seq[peer_id] = seq
 	_last_input[peer_id] = cmd
 
 
-# -----------------------------------------------------------------------------
-# randi_range(a, b)
-# -----------------------------------------------------------------------------
-# PURPOSE:
-# - Helper for inclusive random integer range.
-#
-# WHERE CALLED:
-# - _on_peer_connected for spawn positions.
-#
-# RETURNS:
-# - int in [a, b]
-# -----------------------------------------------------------------------------
-func randi_range(a: int, b: int) -> int:
-	return a + int(randi() % (b - a + 1))
+func _respawn_player(player: Player) -> void:
+	var spawn_pos = Vector2(
+		randf_range(GameConstants.SPAWN_MIN.x, GameConstants.SPAWN_MAX.x),
+		randf_range(GameConstants.SPAWN_MIN.y, GameConstants.SPAWN_MAX.y)
+	)
+	player.respawn(spawn_pos)

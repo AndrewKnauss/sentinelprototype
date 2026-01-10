@@ -34,9 +34,16 @@ var rotation_rad: float = 0.0
 # Movement tuning.
 const MOVE_SPEED: float = 220.0
 
+# Combat
+var health: float = 100.0
+var max_health: float = 100.0
+var _shoot_cooldown: float = 0.0
+const SHOOT_COOLDOWN: float = 0.3  # Fire rate (seconds between shots)
+
 # Visual components created in code so you don't need separate scenes/assets.
 var _sprite: Sprite2D
 var _label: Label
+var _health_bar: ColorRect
 
 # A shared texture for all players to avoid allocating per player.
 static var _shared_tex: Texture2D = null
@@ -79,6 +86,17 @@ func _ready() -> void:
 	_label.position = Vector2(-10, -26)
 	_label.scale = Vector2(0.8, 0.8)
 	add_child(_label)
+	
+	# Health bar
+	_health_bar = ColorRect.new()
+	_health_bar.size = Vector2(20, 3)
+	_health_bar.position = Vector2(-10, -20)
+	_health_bar.color = Color.GREEN
+	add_child(_health_bar)
+	
+	# Enable physics collision for bullets
+	set_collision_layer_value(1, true)
+	set_collision_mask_value(1, true)
 
 
 # -----------------------------------------------------------------------------
@@ -104,7 +122,7 @@ func _ready() -> void:
 # - Keeping this deterministic and identical across server and client is what makes
 #   prediction + reconciliation work.
 # -----------------------------------------------------------------------------
-func apply_input(mv: Vector2, aim: Vector2, _buttons: int, dt: float) -> void:
+func apply_input(mv: Vector2, aim: Vector2, buttons: int, dt: float) -> void:
 	# Safety clamp: never allow > 1 magnitude (prevents "speed hacks" if server uses it too).
 	if mv.length() > 1.0:
 		mv = mv.normalized()
@@ -117,6 +135,11 @@ func apply_input(mv: Vector2, aim: Vector2, _buttons: int, dt: float) -> void:
 	if aim.length() > 0.001:
 		rotation_rad = aim.angle()
 	rotation = rotation_rad
+	
+	# Update shoot cooldown
+	_shoot_cooldown -= dt
+	if _shoot_cooldown < 0:
+		_shoot_cooldown = 0
 
 
 # -----------------------------------------------------------------------------
@@ -143,7 +166,8 @@ func get_state() -> Dictionary:
 	return {
 		"p": global_position,
 		"v": velocity,
-		"r": rotation_rad
+		"r": rotation_rad,
+		"h": health
 	}
 
 
@@ -168,6 +192,8 @@ func set_state(s: Dictionary) -> void:
 	velocity = s.get("v", velocity)
 	rotation_rad = float(s.get("r", rotation_rad))
 	rotation = rotation_rad
+	health = float(s.get("h", health))
+	_update_health_bar()
 
 
 # -----------------------------------------------------------------------------
@@ -194,3 +220,76 @@ func _color_from_id(id: int) -> Color:
 
 	# Keep them not-too-dark.
 	return Color(0.25 + 0.75 * r, 0.25 + 0.75 * g, 0.25 + 0.75 * b, 1.0)
+
+
+# -----------------------------------------------------------------------------
+# can_shoot()
+# -----------------------------------------------------------------------------
+# PURPOSE:
+# - Check if player is allowed to shoot (cooldown)
+# -----------------------------------------------------------------------------
+func can_shoot() -> bool:
+	return _shoot_cooldown <= 0
+
+
+# -----------------------------------------------------------------------------
+# reset_shoot_cooldown()
+# -----------------------------------------------------------------------------
+# PURPOSE:
+# - Start shoot cooldown after firing
+# -----------------------------------------------------------------------------
+func reset_shoot_cooldown() -> void:
+	_shoot_cooldown = SHOOT_COOLDOWN
+
+
+# -----------------------------------------------------------------------------
+# take_damage(amount, attacker_id)
+# -----------------------------------------------------------------------------
+# PURPOSE:
+# - Reduce health and check for death
+# - Server-only (authoritative)
+# -----------------------------------------------------------------------------
+func take_damage(amount: float, attacker_id: int) -> void:
+	health -= amount
+	if health < 0:
+		health = 0
+	
+	_update_health_bar()
+	
+	if health <= 0:
+		die()
+
+
+# -----------------------------------------------------------------------------
+# die()
+# -----------------------------------------------------------------------------
+# PURPOSE:
+# - Handle player death (respawn after delay)
+# -----------------------------------------------------------------------------
+func die() -> void:
+	# Simple respawn: reset health and teleport to spawn
+	health = max_health
+	global_position = Vector2(150, 150)  # Spawn point
+	_update_health_bar()
+
+
+# -----------------------------------------------------------------------------
+# _update_health_bar()
+# -----------------------------------------------------------------------------
+# PURPOSE:
+# - Update health bar visual
+# -----------------------------------------------------------------------------
+func _update_health_bar() -> void:
+	if not _health_bar:
+		return
+	
+	var health_percent := health / max_health
+	_health_bar.size.x = 20 * health_percent
+	
+	# Color: green -> yellow -> red
+	if health_percent > 0.6:
+		_health_bar.color = Color.GREEN
+	elif health_percent > 0.3:
+		_health_bar.color = Color.YELLOW
+	else:
+		_health_bar.color = Color.RED

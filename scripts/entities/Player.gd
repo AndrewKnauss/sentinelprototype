@@ -1,0 +1,136 @@
+extends NetworkedEntity
+class_name Player
+
+# =============================================================================
+# Player.gd
+# =============================================================================
+# Networked player entity with movement, shooting, and building.
+# =============================================================================
+
+var health: float = GameConstants.PLAYER_MAX_HEALTH
+var velocity: Vector2 = Vector2.ZERO
+var is_local: bool = false
+
+var _shoot_cooldown: float = 0.0
+var _sprite: Sprite2D
+var _label: Label
+var _health_bar: ColorRect
+
+static var _shared_tex: Texture2D = null
+
+
+func _ready() -> void:
+	super._ready()
+	entity_type = "player"
+	
+	# Create shared texture once
+	if _shared_tex == null:
+		var img = Image.create(16, 16, false, Image.FORMAT_RGBA8)
+		img.fill(Color(1, 1, 1, 1))
+		_shared_tex = ImageTexture.create_from_image(img)
+	
+	# Visual setup
+	_sprite = Sprite2D.new()
+	_sprite.texture = _shared_tex
+	_sprite.centered = true
+	var color = _color_from_id(net_id)
+	if is_local:
+		color = color.lerp(Color.WHITE, 0.4)
+	_sprite.modulate = color
+	add_child(_sprite)
+	
+	_label = Label.new()
+	_label.text = str(net_id)
+	_label.position = Vector2(-10, -26)
+	_label.scale = Vector2(0.8, 0.8)
+	add_child(_label)
+	
+	# Health bar
+	_health_bar = ColorRect.new()
+	_health_bar.size = Vector2(20, 3)
+	_health_bar.position = Vector2(-10, -20)
+	_health_bar.color = Color.GREEN
+	add_child(_health_bar)
+
+
+func _process(delta: float) -> void:
+	_shoot_cooldown -= delta
+	_update_health_bar()
+
+
+func apply_input(mv: Vector2, aim: Vector2, buttons: int, dt: float) -> void:
+	"""Apply player input (movement and aiming)."""
+	if mv.length() > 1.0:
+		mv = mv.normalized()
+	
+	velocity = mv * GameConstants.PLAYER_MOVE_SPEED
+	global_position += velocity * dt
+	
+	# Clamp to world bounds
+	global_position.x = clamp(global_position.x, 0, 1024)
+	global_position.y = clamp(global_position.y, 0, 600)
+	
+	if aim.length() > 0.001:
+		rotation = aim.angle()
+
+
+func shoot() -> bool:
+	"""Attempt to shoot. Returns true if shot was fired."""
+	if _shoot_cooldown > 0:
+		return false
+	
+	_shoot_cooldown = GameConstants.PLAYER_SHOOT_COOLDOWN
+	return true
+
+
+func take_damage(amount: float) -> bool:
+	"""Apply damage. Returns true if killed."""
+	health -= amount
+	if health <= 0:
+		health = 0
+		return true
+	return false
+
+
+func respawn(pos: Vector2) -> void:
+	"""Respawn at position with full health."""
+	health = GameConstants.PLAYER_MAX_HEALTH
+	global_position = pos
+	velocity = Vector2.ZERO
+
+
+func get_replicated_state() -> Dictionary:
+	return {
+		"p": global_position,
+		"r": rotation,
+		"h": health,
+		"v": velocity
+	}
+
+
+func apply_replicated_state(state: Dictionary) -> void:
+	global_position = state.get("p", global_position)
+	rotation = state.get("r", rotation)
+	health = state.get("h", health)
+	velocity = state.get("v", velocity)
+
+
+func _update_health_bar() -> void:
+	var pct = health / GameConstants.PLAYER_MAX_HEALTH
+	_health_bar.size.x = 20 * pct
+	if pct > 0.6:
+		_health_bar.color = Color.GREEN
+	elif pct > 0.3:
+		_health_bar.color = Color.YELLOW
+	else:
+		_health_bar.color = Color.RED
+
+
+func _color_from_id(id: int) -> Color:
+	var x = id * 1103515245 + 12345
+	var r = float((x >> 16) & 255) / 255.0
+	x = x * 1103515245 + 12345
+	var g = float((x >> 16) & 255) / 255.0
+	x = x * 1103515245 + 12345
+	var b = float((x >> 16) & 255) / 255.0
+	return Color(0.25 + 0.75 * r, 0.25 + 0.75 * g, 0.25 + 0.75 * b, 1.0)
