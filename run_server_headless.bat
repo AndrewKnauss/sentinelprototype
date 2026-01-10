@@ -23,7 +23,7 @@ if not exist "%PROJECT_DIR%\project.godot" (
   exit /b 1
 )
 
-"%GODOT_EXE%" --path "%PROJECT_DIR%" -- --server
+"%GODOT_EXE%" --headless --path "%PROJECT_DIR%" -- --server
 
 echo.
 echo Server exited. Press any key to close.

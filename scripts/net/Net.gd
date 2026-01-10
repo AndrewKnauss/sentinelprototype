@@ -134,6 +134,8 @@ func spawn_entity(data: Dictionary) -> void:
 	if is_server():
 		return
 	
+	print("CLIENT Net: Received spawn_entity: ", data)
+	
 	var type = data.get("type", "")
 	var net_id = data.get("net_id", 0)
 	var pos = data.get("pos", Vector2.ZERO)
@@ -157,12 +159,18 @@ func spawn_entity(data: Dictionary) -> void:
 		entity.net_id = net_id
 		entity.authority = 1
 		get_tree().root.add_child(entity)
+		print("CLIENT Net: Spawned ", type, " with net_id ", net_id, " at ", pos)
+	else:
+		print("CLIENT Net: ERROR - Failed to create entity type: ", type)
 
 
 @rpc("any_peer", "reliable")
 func despawn_entity(net_id: int) -> void:
 	if is_server():
 		return
+	print("CLIENT Net: Despawning entity ", net_id)
 	var entity = Replication.get_entity(net_id)
 	if entity:
 		entity.queue_free()
+	else:
+		print("CLIENT Net: WARNING - Entity ", net_id, " not found in Replication")

@@ -20,14 +20,14 @@ var entity_type: String = "unknown"
 
 func _ready() -> void:
 	# Register with replication system
-	if has_node("/root/ReplicationManager"):
-		get_node("/root/ReplicationManager").register(self)
+	if has_node("/root/Replication"):
+		get_node("/root/Replication").register(self)
 
 
 func _exit_tree() -> void:
 	# Unregister when removed
-	if has_node("/root/ReplicationManager"):
-		get_node("/root/ReplicationManager").unregister(net_id)
+	if has_node("/root/Replication"):
+		get_node("/root/Replication").unregister(net_id)
 
 
 # Override in subclasses to define what gets replicated

@@ -18,7 +18,7 @@ var _predicted_states: Dictionary = {}
 
 # Interpolation
 var _latest_tick: int = 0
-var _snap_buffers: Dictionary = {}  # peer_id -> Array[{tick, state}]
+var _snap_buffers: Dictionary = {}  # net_id -> Array[{tick, state}]
 var _last_server_state: Dictionary = {}
 
 
@@ -32,7 +32,10 @@ func _ready() -> void:
 	title.position = Vector2(10, 10)
 	add_child(title)
 	
-	Net.client_connected.connect(func(id): _my_id = id)
+	Net.client_connected.connect(func(id): 
+		_my_id = id
+		print("CLIENT: My ID is ", id)
+	)
 	Net.spawn_received.connect(_on_spawn_player)
 	Net.despawn_received.connect(_on_despawn_player)
 	Net.snapshot_received.connect(_on_snapshot)
@@ -49,10 +52,8 @@ func _physics_process(_delta: float) -> void:
 	if _players.has(_my_id):
 		_send_and_predict(dt)
 	
-	# Remote interpolation
-	for peer_id in _players:
-		if peer_id != _my_id:
-			_interpolate_player(_players[peer_id])
+	# Interpolate ALL non-local entities (players, enemies, walls)
+	_interpolate_all_entities()
 
 
 func _send_and_predict(dt: float) -> void:
@@ -89,12 +90,28 @@ func _send_and_predict(dt: float) -> void:
 		_pending_inputs.pop_front()
 
 
-func _interpolate_player(player: Player) -> void:
+func _interpolate_all_entities() -> void:
+	"""Interpolate all non-local entities (remote players, enemies, walls)."""
 	var render_tick = _latest_tick - GameConstants.INTERP_DELAY_TICKS
 	if render_tick <= 0:
 		return
 	
-	var buf = _snap_buffers.get(player.net_id, [])
+	# Interpolate all entities with snapshot buffers
+	for net_id in _snap_buffers:
+		var entity = Replication.get_entity(net_id)
+		if not entity or not is_instance_valid(entity):
+			continue
+		
+		# Skip local player (we predict it)
+		if entity is Player and entity.net_id == _my_id:
+			continue
+		
+		_interpolate_entity(entity, render_tick)
+
+
+func _interpolate_entity(entity: NetworkedEntity, render_tick: int) -> void:
+	"""Interpolate a single entity between snapshots."""
+	var buf = _snap_buffers.get(entity.net_id, [])
 	if buf.size() < 2:
 		return
 	
@@ -116,12 +133,17 @@ func _interpolate_player(player: Player) -> void:
 	var sa = a["state"]
 	var sb = b["state"]
 	
-	player.global_position = sa["p"].lerp(sb["p"], t)
-	player.rotation = lerp_angle(sa["r"], sb["r"], t)
+	# Interpolate position and rotation
+	if sa.has("p") and sb.has("p"):
+		entity.global_position = sa["p"].lerp(sb["p"], t)
+	if sa.has("r") and sb.has("r"):
+		entity.rotation = lerp_angle(sa["r"], sb["r"], t)
 
 
 func _on_spawn_player(payload: Dictionary) -> void:
 	var peer_id = payload["peer_id"]
+	
+	print("CLIENT: Received spawn for player ", peer_id)
 	
 	if _my_id == 0:
 		_my_id = Net.get_unique_id()
@@ -144,11 +166,14 @@ func _on_spawn_player(payload: Dictionary) -> void:
 	_players[peer_id] = player
 	player.apply_replicated_state(payload["state"])
 	
+	print("CLIENT: Spawned player ", peer_id, " at ", player.global_position)
+	
 	if not _snap_buffers.has(peer_id):
 		_snap_buffers[peer_id] = []
 
 
 func _on_despawn_player(peer_id: int) -> void:
+	print("CLIENT: Despawning player ", peer_id)
 	if _players.has(peer_id):
 		_players[peer_id].queue_free()
 		_players.erase(peer_id)
@@ -159,21 +184,31 @@ func _on_snapshot(snap: Dictionary) -> void:
 	_latest_tick = snap.get("tick", _latest_tick)
 	var states = snap.get("states", {})
 	
-	for peer_id_str in states:
-		var peer_id = int(peer_id_str)
-		var state = states[peer_id_str]
+	# DEBUG: Print snapshot contents occasionally
+	if _latest_tick % 120 == 0:
+		print("CLIENT: Snapshot tick ", _latest_tick, " contains entities: ", states.keys())
+		print("CLIENT: Registered entities: ", Replication._entities.keys())
+	
+	# Process all entities in snapshot (players, enemies, walls, bullets)
+	for net_id_str in states:
+		var net_id = int(net_id_str)
+		var state = states[net_id_str]
 		
-		if peer_id == _my_id:
+		# Special handling for local player (store for reconciliation)
+		if net_id == _my_id:
 			_last_server_state = state
-		else:
-			if not _snap_buffers.has(peer_id):
-				_snap_buffers[peer_id] = []
-			
-			var buf = _snap_buffers[peer_id]
-			buf.append({"tick": _latest_tick, "state": state})
-			
-			while buf.size() > 40:
-				buf.pop_front()
+			continue
+		
+		# All other entities: add to interpolation buffer
+		if not _snap_buffers.has(net_id):
+			_snap_buffers[net_id] = []
+		
+		var buf = _snap_buffers[net_id]
+		buf.append({"tick": _latest_tick, "state": state})
+		
+		# Keep buffer bounded
+		while buf.size() > 40:
+			buf.pop_front()
 
 
 func _on_ack(ack: Dictionary) -> void:

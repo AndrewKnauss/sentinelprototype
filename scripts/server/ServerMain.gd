@@ -83,8 +83,18 @@ func _physics_process(_delta: float) -> void:
 	
 	# 4. Replicate
 	if not Net.get_peers().is_empty():
-		var snapshot = Replication.build_snapshot()
-		snapshot["tick"] = _server_tick
+		var states = Replication.build_snapshot()
+		
+		# IMPORTANT: Wrap states in a sub-dictionary to avoid key type issues
+		var snapshot = {
+			"tick": _server_tick,
+			"states": states
+		}
+		
+		# DEBUG: Print snapshot contents occasionally
+		if _server_tick % 120 == 0:  # Every 2 seconds
+			print("SERVER: Sending snapshot with ", states.size(), " entities")
+		
 		Net.client_receive_snapshot.rpc(snapshot)
 		
 		for peer_id in Net.get_peers():
