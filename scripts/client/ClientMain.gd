@@ -2,9 +2,40 @@ extends Node2D
 class_name ClientMain
 
 # =============================================================================
-# ClientMain.gd
+# ClientMain.gd - Client-Side Prediction & Interpolation
 # =============================================================================
-# Client with prediction, reconciliation, and interpolation.
+# 
+# ARCHITECTURE OVERVIEW:
+# This client uses different strategies for different entity types:
+#
+# LOCAL PLAYER (you):
+#   - CLIENT-SIDE PREDICTION: Apply inputs immediately for zero-latency feel
+#   - Send inputs to server
+#   - Server simulates and sends back authoritative state
+#   - RECONCILIATION: If predicted position differs from server, rewind & replay
+#   - NON-PREDICTED STATE: Health/status applied immediately from server
+#
+# REMOTE PLAYERS (others):
+#   - INTERPOLATION: Render 2 ticks behind, smoothly lerp between snapshots
+#   - No prediction (we don't have their inputs)
+#
+# ENEMIES & WALLS:
+#   - INTERPOLATION: Same as remote players
+#   - Server-authoritative AI and physics
+#
+# WALLS:
+#   - STATIC: Position set once on spawn, only health updates
+#   - No interpolation needed (they don't move)
+#
+# BULLETS:
+#   - PURE CLIENT PREDICTION: Spawn instantly, no server reconciliation
+#   - Server validates damage but client handles visuals
+#
+# DATA FLOW:
+#   1. Sample input → Send to server → Predict locally → Store state
+#   2. Server snapshot arrives → Apply health → Buffer for interpolation
+#   3. Server ACK arrives → Check position → Reconcile if mismatch
+#   4. Every frame → Interpolate remote entities from buffered snapshots
 # =============================================================================
 
 var _world: Node2D
@@ -22,8 +53,9 @@ var _latest_tick: int = 0
 var _snap_buffers: Dictionary = {}  # net_id -> Array[{tick, state}]
 var _last_server_state: Dictionary = {}
 
-
+# Initialize client, setup UI, and connect to network events.
 func _ready() -> void:
+	
 	_world = Node2D.new()
 	_world.name = "World"
 	add_child(_world)
@@ -78,8 +110,9 @@ func _ready() -> void:
 	Net.snapshot_received.connect(_on_snapshot)
 	Net.ack_received.connect(_on_ack)
 
-
+# Main client tick: Predict local player, interpolate remote entities
 func _physics_process(_delta: float) -> void:
+	
 	if _my_id == 0:
 		return
 	
@@ -94,11 +127,12 @@ func _physics_process(_delta: float) -> void:
 	if _players.has(_my_id):
 		_send_and_predict(dt)
 	
-	# Interpolate ALL non-local entities (players, enemies, walls)
+	# Interpolate ALL non-local entities (players, enemies, NOT walls)
 	_interpolate_all_entities()
 
-
+# Sample input, send to server, predict movement locally, store for reconciliation
 func _send_and_predict(dt: float) -> void:
+	
 	var player = _players[_my_id]
 	
 	# Sample input
@@ -135,14 +169,16 @@ func _send_and_predict(dt: float) -> void:
 	if _pending_inputs.size() > 256:
 		_pending_inputs.pop_front()
 
-
+#Interpolate all non-local entities (remote players, enemies) between buffered snapshots.
+#Renders entities 2 ticks behind to ensure smooth interpolation even with jitter.
+#Skips local player (predicted), bullets (client-predicted), and walls (static).
 func _interpolate_all_entities() -> void:
-	"""Interpolate all non-local entities (remote players, enemies, walls)."""
+	
 	var render_tick = _latest_tick - GameConstants.INTERP_DELAY_TICKS
 	if render_tick <= 0:
 		return
 	
-	# Interpolate all entities with snapshot buffers (EXCEPT bullets)
+	# Interpolate all entities with snapshot buffers (EXCEPT bullets and walls)
 	for net_id in _snap_buffers:
 		var entity = Replication.get_entity(net_id)
 		if not entity or not is_instance_valid(entity):
@@ -156,11 +192,17 @@ func _interpolate_all_entities() -> void:
 		if entity is Bullet:
 			continue
 		
+		# Skip walls (they're static, handled directly in snapshot)
+		if entity is Wall:
+			continue
+		
 		_interpolate_entity(entity, render_tick)
 
-
+#Interpolate a single entity's position/rotation between two snapshots.
+#Finds the two snapshots surrounding render_tick, calculates interpolation factor,
+#and smoothly lerps position and rotation. Non-interpolated values (health) applied directly.
 func _interpolate_entity(entity: NetworkedEntity, render_tick: int) -> void:
-	"""Interpolate a single entity between snapshots."""
+
 	var buf = _snap_buffers.get(entity.net_id, [])
 	if buf.size() < 2:
 		return
@@ -195,8 +237,11 @@ func _interpolate_entity(entity: NetworkedEntity, render_tick: int) -> void:
 	if sb.has("v") and "velocity" in entity:
 		entity.velocity = sb["v"]
 
-
+#Handle player spawn RPC from server.
+#Creates Player entity, marks as local if it's our player, initializes interpolation buffer.
+#Local player gets client-side prediction authority, remote players are server-authoritative.
 func _on_spawn_player(payload: Dictionary) -> void:
+
 	var peer_id = payload["peer_id"]
 	
 	print("CLIENT: Received spawn for player ", peer_id)
@@ -227,6 +272,7 @@ func _on_spawn_player(payload: Dictionary) -> void:
 	if not _snap_buffers.has(peer_id):
 		_snap_buffers[peer_id] = []
 
+#Handle player disconnect - remove entity and clean up buffers.
 
 func _on_despawn_player(peer_id: int) -> void:
 	print("CLIENT: Despawning player ", peer_id)
@@ -235,8 +281,19 @@ func _on_despawn_player(peer_id: int) -> void:
 		_players.erase(peer_id)
 	_snap_buffers.erase(peer_id)
 
-
+#Handle server snapshot containing all entity states.
+#For LOCAL PLAYER:
+  #- Store state for reconciliation
+  #- Apply non-predicted state (health) immediately
+  #- Trigger hurt flash if health decreased
+#For WALLS (static entities):
+  #- Apply health only (position is static after spawn)
+  #- Skip interpolation buffer
+#For REMOTE ENTITIES (players, enemies):
+  #- Add to interpolation buffer
+  #- Skip bullets (they're client-predicted)
 func _on_snapshot(snap: Dictionary) -> void:
+
 	_latest_tick = snap.get("tick", _latest_tick)
 	var states = snap.get("states", {})
 	
@@ -250,9 +307,18 @@ func _on_snapshot(snap: Dictionary) -> void:
 		var net_id = int(net_id_str)
 		var state = states[net_id_str]
 		
-		# Special handling for local player (store for reconciliation)
+		# Special handling for local player
 		if net_id == _my_id:
 			_last_server_state = state
+			
+			# Apply non-predicted state immediately (health, etc.)
+			var player = _players.get(_my_id)
+			if player:
+				var new_health = state.get("h", player.health)
+				if new_health < player.health:
+					player._hurt_flash_timer = 0.2  # Trigger flash on damage
+				player.health = new_health
+			
 			continue
 		
 		# Skip bullets - they're purely client-side predicted
@@ -260,7 +326,14 @@ func _on_snapshot(snap: Dictionary) -> void:
 		if entity and entity is Bullet:
 			continue
 		
-		# All other entities: add to interpolation buffer
+		# Handle walls specially (static entities - no interpolation needed)
+		if entity and entity is Wall:
+			# Only update health, position is set once on spawn
+			if state.has("h") and "health" in entity:
+				entity.health = state["h"]
+			continue
+		
+		# All other entities: add to interpolation buffer (players, enemies)
 		if not _snap_buffers.has(net_id):
 			_snap_buffers[net_id] = []
 		
@@ -271,8 +344,16 @@ func _on_snapshot(snap: Dictionary) -> void:
 		while buf.size() > 40:
 			buf.pop_front()
 
-
+#Handle server ACK - reconcile local player if position differs from server.
+#Compares predicted position at ack_seq with server's authoritative position.
+#If mismatch exceeds threshold:
+  #1. Rewind to server state
+  #2. Replay all pending inputs after ack_seq
+  #3. Re-predict all states
+#This fixes prediction errors while maintaining responsive local movement.
+#Note: Health is NOT reconciled here - it's applied immediately in _on_snapshot.
 func _on_ack(ack: Dictionary) -> void:
+
 	var ack_seq = ack.get("ack_seq", 0)
 	if ack_seq <= 0 or _last_server_state.is_empty() or not _players.has(_my_id):
 		return
@@ -284,16 +365,11 @@ func _on_ack(ack: Dictionary) -> void:
 	var player = _players[_my_id]
 	var predicted = _predicted_states[ack_seq]
 	
-	# Check if any state differs
+	# Check if position differs (only reconcile on position mismatch)
 	var pred_pos = predicted.get("p", Vector2.ZERO)
 	var srv_pos = _last_server_state.get("p", Vector2.ZERO)
-	var pred_health = predicted.get("h", 0.0)
-	var srv_health = _last_server_state.get("h", 0.0)
 	
-	var needs_reconcile = (
-		pred_pos.distance_to(srv_pos) >= GameConstants.RECONCILE_POSITION_THRESHOLD or
-		abs(pred_health - srv_health) > 0.01
-	)
+	var needs_reconcile = pred_pos.distance_to(srv_pos) >= GameConstants.RECONCILE_POSITION_THRESHOLD
 	
 	if not needs_reconcile:
 		_drop_confirmed(ack_seq)
@@ -314,7 +390,7 @@ func _on_ack(ack: Dictionary) -> void:
 		player.apply_input(cmd["mv"], cmd["aim"], cmd["btn"], GameConstants.FIXED_DELTA)
 		_predicted_states[cmd["seq"]] = player.get_replicated_state()
 
-
+#Clean up confirmed inputs and states - server has acknowledged them
 func _drop_confirmed(ack_seq: int) -> void:
 	var replay = []
 	for cmd in _pending_inputs:
@@ -326,9 +402,11 @@ func _drop_confirmed(ack_seq: int) -> void:
 		if int(seq) <= ack_seq:
 			_predicted_states.erase(seq)
 
-
+#Spawn bullet immediately for instant client-side feedback.
+#Client predicts bullet spawn/trajectory for zero-latency shooting.
+#Server will also spawn authoritative bullet and validate damage.
 func _spawn_predicted_bullet(pos: Vector2, dir: Vector2) -> void:
-	"""Spawn bullet immediately for client-side prediction."""
+
 	var bullet = Bullet.new()
 	bullet.net_id = -1  # Temporary ID for predicted bullets
 	bullet.authority = _my_id

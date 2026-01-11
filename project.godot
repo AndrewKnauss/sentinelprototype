@@ -24,8 +24,6 @@ Replication="*res://scripts/shared/ReplicationManager.gd"
 
 window/size/viewport_width=1024
 window/size/viewport_height=600
-window/size/mode=0
-window/size/resizable=true
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 
