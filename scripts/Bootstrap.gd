@@ -43,6 +43,7 @@ func _ready() -> void:
 
 	var host: String = _arg_value("--host=", DEFAULT_HOST)
 	var port: int = int(_arg_value("--port=", str(DEFAULT_PORT)))
+	var auto_connect: bool = "--auto-connect" in args
 
 	if "--server" in args:
 		# Add server controller node
@@ -60,8 +61,9 @@ func _ready() -> void:
 		var client_node: Node = (load("res://scripts/client/ClientMain.gd") as Script).new()
 		add_child(client_node)
 		
-		# Don't auto-connect - let UI handle it
-		# Net.connect_client(host, port)
+		# Auto-connect if flag present
+		if auto_connect:
+			Net.connect_client(host, port)
 
 # -----------------------------------------------------------------------------
 # _arg_value(prefix, default_val)

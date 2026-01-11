@@ -15,6 +15,7 @@ var _shoot_cooldown: float = 0.0
 var _sprite: Sprite2D
 var _label: Label
 var _health_bar: ColorRect
+var _hurt_flash_timer: float = 0.0
 
 static var _shared_tex: Texture2D = null
 
@@ -33,9 +34,7 @@ func _ready() -> void:
 	_sprite = Sprite2D.new()
 	_sprite.texture = _shared_tex
 	_sprite.centered = true
-	var color = _color_from_id(net_id)
-	if is_local:
-		color = color.lerp(Color.WHITE, 0.4)
+	var color = Color.BLACK if is_local else _color_from_id(net_id)
 	_sprite.modulate = color
 	add_child(_sprite)
 	
@@ -56,6 +55,14 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	_shoot_cooldown -= delta
 	_update_health_bar()
+	
+	# Hurt flash effect
+	if _hurt_flash_timer > 0.0:
+		_hurt_flash_timer -= delta
+		var flash_intensity = _hurt_flash_timer / 0.2
+		_sprite.modulate = Color.RED.lerp(_get_base_color(), 1.0 - flash_intensity)
+	else:
+		_sprite.modulate = _get_base_color()
 
 
 func apply_input(mv: Vector2, aim: Vector2, buttons: int, dt: float) -> void:
@@ -86,6 +93,7 @@ func shoot() -> bool:
 func take_damage(amount: float) -> bool:
 	"""Apply damage. Returns true if killed."""
 	health -= amount
+	_hurt_flash_timer = 0.2  # Flash red for 0.2 seconds
 	if health <= 0:
 		health = 0
 		return true
@@ -134,3 +142,7 @@ func _color_from_id(id: int) -> Color:
 	x = x * 1103515245 + 12345
 	var b = float((x >> 16) & 255) / 255.0
 	return Color(0.25 + 0.75 * r, 0.25 + 0.75 * g, 0.25 + 0.75 * b, 1.0)
+
+
+func _get_base_color() -> Color:
+	return Color.BLACK if is_local else _color_from_id(net_id)
