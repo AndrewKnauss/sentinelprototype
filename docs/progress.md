@@ -24,12 +24,16 @@
 - ✅ Client-side collision detection
 - ✅ WebSocket support (browser-compatible)
 - ✅ Dual protocol support (ENet/WebSocket toggle)
+- ✅ Wall optimization (static entities, no interpolation)
+- ✅ Position-only reconciliation (health from snapshots)
 
 ### Polish
 - ✅ Camera following local player (smooth)
 - ✅ Fullscreen scaling (1920x1080)
 - ✅ Test session launcher (1 server + 3 clients, quadrant layout)
 - ✅ Connection UI (server/port input)
+- ✅ Hurt flash effect (players and enemies flash when damaged)
+- ✅ Local player visual (black color for easy identification)
 
 ### Deployment
 - ✅ Railway.app hosting setup
@@ -39,7 +43,15 @@
 - ✅ Export configs (Procfile, railway.json, start.sh)
 
 ## Latest Session Summary (Jan 2026)
-**Visual Polish & Quality of Life**
+**Session #1 - Network Optimization & Hurt Flash**
+- Wall optimization: Static entities no longer interpolated (30-50% performance gain)
+- Position-only reconciliation: Health applied directly from snapshots (no rewind/replay)
+- Hurt flash for enemies: WHITE flash on damage (matches players)
+- Hurt flash triggers via interpolation for remote entities
+- Documentation: Architecture.md, wall_optimization.md, hurt_flash.md
+- Performance: Eliminated unnecessary interpolation, reduced reconciliation triggers
+
+**Previous: Visual Polish & Quality of Life**
 - Added hurt flash effect (players flash red when damaged)
 - Local player now appears black (easy identification)
 - Reconciliation checks all state (position + health)

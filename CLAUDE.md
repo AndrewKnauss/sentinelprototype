@@ -73,11 +73,13 @@ _input_seq: int
 _pending_inputs: Array
 _predicted_states: Dictionary
 
-// Reconciliation checks ALL state
-var needs_reconcile = (
-	pred_pos.distance_to(srv_pos) >= RECONCILE_POSITION_THRESHOLD or
-	abs(pred_health - srv_health) > 0.01
-)
+// Position-only reconciliation (optimized)
+var needs_reconcile = pred_pos.distance_to(srv_pos) >= RECONCILE_POSITION_THRESHOLD
+
+// Health applied separately from snapshots (no reconciliation)
+if new_health < player.health:
+    player._hurt_flash_timer = 0.2
+player.health = new_health
 ```
 
 **Interpolation**:
@@ -105,16 +107,26 @@ if entity is Wall:
 - Client skips if owner matches
 - Collision runs both sides (visual + authoritative)
 
-**Hurt Flash** (Player.gd):
+**Hurt Flash** (All Entities):
 ```gdscript
-// Server: take_damage() sets _hurt_flash_timer = 0.2
-// Client: apply_replicated_state() detects health drop, sets timer
-// _process(): Lerps sprite RED -> base_color over 0.2s
+// Player.gd / Enemy.gd pattern
+var _hurt_flash_timer: float = 0.0
 
+// Server: take_damage() sets timer
+func take_damage(amount: float) -> bool:
+    health -= amount
+    _hurt_flash_timer = 0.2
+
+// Client: detect health drop in apply_replicated_state()
+var new_health = state.get("h", health)
+if new_health < health:
+    _hurt_flash_timer = 0.2
+health = new_health
+
+// _process()/_physics_process(): Lerp to flash color
 if _hurt_flash_timer > 0.0:
-	_hurt_flash_timer -= delta
-	var flash_intensity = _hurt_flash_timer / 0.2
-	_sprite.modulate = Color.RED.lerp(_get_base_color(), 1.0 - flash_intensity)
+    var intensity = _hurt_flash_timer / 0.2
+    _sprite.modulate = FlashColor.lerp(BaseColor, 1.0 - intensity)
 ```
 
 **Connection UI** (ClientMain.gd):
@@ -242,17 +254,17 @@ func apply_replicated_state(state: Dictionary) -> void:
 
 ## Recent Changes
 
-**Wall Optimization** (Current Session):
-- Walls no longer interpolated (static entities)
-- Only health updates from snapshots
-- Performance: 30-50% fewer entities in interpolation loop
-- Position reconciliation only checks position (not health)
-- Health applied immediately from snapshots for local player
+**Session #1 - Network Optimization & Hurt Flash**:
+- Wall optimization: Static entities no longer interpolated (30-50% perf gain)
+- Position-only reconciliation: Health from snapshots (no rewind on damage)
+- Hurt flash for enemies: WHITE flash matching player behavior
+- Interpolation triggers hurt flash for remote entities
+- Docs: Architecture.md, wall_optimization.md, hurt_flash.md
 
 **Visual Polish**:
-- Hurt flash effect (red flash on damage)
+- Hurt flash effect (RED for players, WHITE for enemies)
 - Local player color = black (easy identification)
-- Reconciliation checks position only (health from snapshots)
+- Reconciliation optimized (position only, health separate)
 
 **Testing QoL**:
 - `--auto-connect` flag

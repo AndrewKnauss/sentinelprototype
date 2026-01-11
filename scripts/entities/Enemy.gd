@@ -25,6 +25,7 @@ var _wander_target: Vector2 = Vector2.ZERO
 
 var _sprite: Sprite2D
 var _health_bar: ColorRect
+var _hurt_flash_timer: float = 0.0
 static var _shared_tex: Texture2D = null
 
 
@@ -57,6 +58,14 @@ func _ready() -> void:
 
 func _physics_process(delta: float) -> void:
 	_update_health_bar()
+	
+	# Hurt flash effect
+	if _hurt_flash_timer > 0.0:
+		_hurt_flash_timer -= delta
+		var flash_intensity = _hurt_flash_timer / 0.2
+		_sprite.modulate = Color.WHITE.lerp(Color.DARK_RED, 1.0 - flash_intensity)
+	else:
+		_sprite.modulate = Color.DARK_RED
 	
 	if not is_authority():
 		return  # Only server controls AI
@@ -201,6 +210,7 @@ func _find_nearest_player() -> Player:
 func take_damage(amount: float) -> bool:
 	"""Apply damage. Returns true if killed."""
 	health -= amount
+	_hurt_flash_timer = 0.2  # Flash white for 0.2 seconds
 	if health <= 0:
 		health = 0
 		died.emit(net_id)
@@ -220,7 +230,13 @@ func get_replicated_state() -> Dictionary:
 func apply_replicated_state(state: Dictionary) -> void:
 	global_position = state.get("p", global_position)
 	rotation = state.get("r", rotation)
-	health = state.get("h", health)
+	
+	# Check if health decreased (took damage)
+	var new_health = state.get("h", health)
+	if new_health < health:
+		_hurt_flash_timer = 0.2  # Trigger flash on damage
+	health = new_health
+	
 	velocity = state.get("v", velocity)
 
 

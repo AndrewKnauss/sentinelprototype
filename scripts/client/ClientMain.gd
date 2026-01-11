@@ -231,9 +231,16 @@ func _interpolate_entity(entity: NetworkedEntity, render_tick: int) -> void:
 	if sa.has("r") and sb.has("r"):
 		entity.rotation = lerp_angle(sa["r"], sb["r"], t)
 	
-	# Apply non-interpolated values (health, etc.) from most recent snapshot
+	# Apply non-interpolated values (health, etc.) using apply_replicated_state
+	# This ensures hurt flash triggers correctly on health decrease
 	if sb.has("h") and "health" in entity:
-		entity.health = sb["h"]
+		var new_health = sb["h"]
+		if entity is Player or entity is Enemy:
+			# For entities with hurt flash, check if health decreased
+			if new_health < entity.health:
+				entity._hurt_flash_timer = 0.2
+		entity.health = new_health
+	
 	if sb.has("v") and "velocity" in entity:
 		entity.velocity = sb["v"]
 
