@@ -49,8 +49,12 @@ func _ready() -> void:
 		var server_node: Node = (load("res://scripts/server/ServerMain.gd") as Script).new()
 		add_child(server_node)
 
+		# Read port from Railway environment or use default
+		var port_env = OS.get_environment("PORT")
+		var server_port = int(port_env) if port_env else port
+		
 		# Start transport in server mode
-		Net.start_server(port)
+		Net.start_server(server_port)
 	else:
 		# Add client controller node
 		var client_node: Node = (load("res://scripts/client/ClientMain.gd") as Script).new()

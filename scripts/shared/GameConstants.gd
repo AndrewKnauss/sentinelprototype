@@ -37,6 +37,7 @@ const WALL_SIZE_SIDE: float = 32.0
 const WALL_SIZE: Vector2 = Vector2(32, 32)
 
 # Networking
+const USE_WEBSOCKET: bool = true  # false = ENet, true = WebSocket
 const DEFAULT_PORT: int = 24567
 const INTERP_DELAY_TICKS: int = 2 # Client interpolation delay
 const RECONCILE_POSITION_THRESHOLD: float = 5.0

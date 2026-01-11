@@ -48,31 +48,53 @@ func get_peers() -> PackedInt32Array:
 
 func start_server(port: int, max_clients: int = 64) -> void:
 	_ensure_scene_multiplayer()
-	var peer = ENetMultiplayerPeer.new()
-	var err = peer.create_server(port, max_clients)
-	if err != OK:
-		push_error("Net.start_server failed: %s" % err)
-		return
+	
+	var peer: MultiplayerPeer
+	if GameConstants.USE_WEBSOCKET:
+		peer = WebSocketMultiplayerPeer.new()
+		var err = peer.create_server(port)
+		if err != OK:
+			push_error("Net.start_server (WebSocket) failed: %s" % err)
+			return
+		print("Net: WebSocket server listening on port ", port)
+	else:
+		peer = ENetMultiplayerPeer.new()
+		var err = peer.create_server(port, max_clients)
+		if err != OK:
+			push_error("Net.start_server (ENet) failed: %s" % err)
+			return
+		print("Net: ENet server listening on port ", port)
 	
 	_sm.multiplayer_peer = peer
 	_sm.peer_connected.connect(func(id): peer_connected.emit(id))
 	_sm.peer_disconnected.connect(func(id): peer_disconnected.emit(id))
 	
-	print("Net: Server listening on port ", port)
 	server_started.emit(port)
 
 
 func connect_client(host: String, port: int) -> void:
 	_ensure_scene_multiplayer()
-	var peer = ENetMultiplayerPeer.new()
-	var err = peer.create_client(host, port)
-	if err != OK:
-		push_error("Net.connect_client failed: %s" % err)
-		client_connection_failed.emit()
-		return
+	
+	var peer: MultiplayerPeer
+	if GameConstants.USE_WEBSOCKET:
+		peer = WebSocketMultiplayerPeer.new()
+		var url = "ws://" + host + ":" + str(port)
+		var err = peer.create_client(url)
+		if err != OK:
+			push_error("Net.connect_client (WebSocket) failed: %s" % err)
+			client_connection_failed.emit()
+			return
+		print("Net: WebSocket client connecting to ", url)
+	else:
+		peer = ENetMultiplayerPeer.new()
+		var err = peer.create_client(host, port)
+		if err != OK:
+			push_error("Net.connect_client (ENet) failed: %s" % err)
+			client_connection_failed.emit()
+			return
+		print("Net: ENet client connecting to %s:%d" % [host, port])
 	
 	_sm.multiplayer_peer = peer
-	print("Net: Client connecting to %s:%d" % [host, port])
 	
 	_sm.connected_to_server.connect(func():
 		print("Net: Connected. My peer id: ", _sm.get_unique_id())
