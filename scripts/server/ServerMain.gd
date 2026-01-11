@@ -82,8 +82,8 @@ func _physics_process(_delta: float) -> void:
 			# This is handled by checking enemy.shoot() in Enemy._ai_chase_and_shoot
 			pass
 	
-	# 3. Check bullet collisions
-	_process_bullets(dt)
+	# 3. Clean up invalid bullets
+	_cleanup_bullets()
 	
 	# 4. Replicate
 	if not Net.get_peers().is_empty():
@@ -105,71 +105,17 @@ func _physics_process(_delta: float) -> void:
 			Net.client_receive_ack.rpc_id(peer_id, ack)
 
 
-func _process_bullets(dt: float) -> void:
-	var bullets_to_remove = []  # Track bullets that hit something
+func _cleanup_bullets() -> void:
+	"""Remove bullets that have been freed (collision detection happens in Bullet.gd)."""
+	var bullets_to_remove = []
 	
 	for bullet in _bullets:
-		if not is_instance_valid(bullet):
-			continue
-		
-		# Check hits
-		var space = get_world_2d().direct_space_state
-		var query = PhysicsRayQueryParameters2D.create(
-			bullet.global_position,
-			bullet.global_position + bullet.velocity.normalized() * 10
-		)
-		query.collision_mask = 2  # Check walls
-		query.exclude = [bullet]
-		
-		var result = space.intersect_ray(query)
-		
-		# Check wall collision
-		if result:
-			var collider = result.get("collider")
-			if collider and collider.get_parent() is Wall:
-				var wall = collider.get_parent() as Wall
-				if wall.take_damage(GameConstants.BULLET_DAMAGE):
-					_despawn_wall(wall)
-				bullets_to_remove.append(bullet)
-				continue
-		
-		# Check player collision
-		var hit_something = false
-		for player in _players.values():
-			if player.global_position.distance_to(bullet.global_position) < 16:
-				if bullet.owner_id != player.net_id:  # Don't hit self
-					if player.take_damage(GameConstants.BULLET_DAMAGE):
-						_respawn_player(player)
-					bullets_to_remove.append(bullet)
-					hit_something = true
-					break
-		
-		if hit_something:
-			continue
-		
-		# Check enemy collision
-		for enemy in _enemies:
-			if enemy and is_instance_valid(enemy):
-				if enemy.global_position.distance_to(bullet.global_position) < 20:
-					# Check friendly fire rules
-					var can_damage = false
-					if bullet.owner_id != 0:  # Player bullet
-						can_damage = true
-					elif GameConstants.ENEMY_FRIENDLY_FIRE:  # Enemy bullet with FF enabled
-						can_damage = true
-					
-					if can_damage:
-						if enemy.take_damage(GameConstants.BULLET_DAMAGE):
-							_respawn_enemy(enemy)
-						bullets_to_remove.append(bullet)
-						break
+		if not is_instance_valid(bullet) or bullet.is_queued_for_deletion():
+			bullets_to_remove.append(bullet)
 	
-	# Remove bullets that hit something and tell clients
+	# Clean up list
 	for bullet in bullets_to_remove:
-		if is_instance_valid(bullet):
-			Net.despawn_entity.rpc(bullet.net_id)
-			bullet.queue_free()
-			_bullets.erase(bullet)
+		_bullets.erase(bullet)
 
 
 func _spawn_bullet(pos: Vector2, dir: Vector2, owner: int) -> void:
