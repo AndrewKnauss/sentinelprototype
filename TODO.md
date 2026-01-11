@@ -8,6 +8,12 @@
 
 ## Immediate Polish (Make it Feel Good)
 
+### Movement
+- [ ] Dash mechanic (spacebar) - short burst of speed with cooldown
+- [ ] Dash particles/trail effect
+- [ ] Dash sound effect
+- [ ] Dash cooldown UI indicator
+
 ### Visual Feedback
 - [ ] Muzzle flash when shooting
 - [ ] Bullet impact particles (hit walls/enemies/players)

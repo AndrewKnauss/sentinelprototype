@@ -19,269 +19,188 @@ Humans vs machines + PvP/raiding, scavenging sandbox
 ### Core Files
 ```
 scripts/
-├── Bootstrap.gd              # Entry (--server/--client, reads Railway PORT, --auto-connect)
-├── client/ClientMain.gd      # Prediction + interpolation + connection UI
+├── systems/Log.gd            # Logging system (autoload)
+├── Bootstrap.gd              # Entry (--server/--client)
+├── client/ClientMain.gd      # Prediction + interpolation
 ├── server/ServerMain.gd      # Authoritative simulation
 ├── entities/
-│   ├── Player.gd            # Networked player (hurt flash, black if local)
-│   ├── Enemy.gd             # AI enemy (chase/wander/separate)
+│   ├── Player.gd            # Networked player (dash mechanic)
+│   ├── Enemy.gd             # AI enemy (aggro system)
 │   ├── Bullet.gd            # Client-predicted projectile
 │   └── Wall.gd              # Buildable structure
 ├── shared/
 │   ├── NetworkedEntity.gd   # Base replicated entity
 │   ├── ReplicationManager.gd # Entity registry
-│   └── GameConstants.gd     # Shared constants + USE_WEBSOCKET flag
-└── net/Net.gd               # Dual protocol transport (ENet/WebSocket)
+│   └── GameConstants.gd     # Shared constants
+└── net/Net.gd               # Dual protocol transport
 ```
 
-### Networking Model
-**Server**: Authoritative, 60 FPS fixed timestep  
-**Client**: Prediction (local player) + Interpolation (remote entities)
+### Logging System
+```gdscript
+// Log.gd (autoload)
+enum Category { NETWORK, ENTITY, SNAPSHOT, INPUT, RECONCILE, ... }
 
-**Dual Protocol**:
+// Usage
+Log.network("Connected to server")
+Log.entity("Spawned player %d" % id)
+Log.warn("Missing entity")
+
+// Categories disabled by default: SNAPSHOT, INPUT, PHYSICS (spammy)
+// Runtime control: Log.set_verbose(true)
+```
+
+### Network Diagnostics
+```gdscript
+// ClientMain.gd - F3 toggle
+var _debug_visible: bool = false  // Press F3
+var _debug_label: Label           // Top-right overlay
+
+// Metrics tracked:
+- FPS (60-sample average)
+- Tick interval (server snapshot rate)
+- Ping (round-trip on every 10th input)
+- Snapshot delivery % (loss calculation)
+- Reconciles/sec
+- Entity counts (total + interpolated)
+- Pending input buffer size
+```
+
+### Static Entity Resync
+```gdscript
+// ServerMain.gd
+const STATIC_SNAPSHOT_INTERVAL: 5.0
+
+func _send_static_snapshot():
+	var static_states = {}
+	for wall in _walls:
+		static_states[str(wall.net_id)] = {
+			"pos": wall.position, "health": wall.health
+		}
+	Net.client_receive_static_snapshot.rpc(static_states)
+
+// ClientMain.gd - spawns missing walls, updates health
+func _on_static_snapshot(states: Dictionary):
+	for net_id in states:
+		var wall = Replication.get_entity(net_id)
+		if not wall: spawn_wall(state)  // Missing → create
+		else: wall.health = state["health"]  // Exists → sync
+```
+
+### Enemy Aggro System
+```gdscript
+// Enemy.gd
+var _damage_taken: Dictionary = {}  // player_id -> damage
+var _aggro_target: Player = null
+var _aggro_lock_time: float = 0.0
+
+const ENEMY_AGGRO_RANGE: 600.0
+const ENEMY_AGGRO_LOCK_TIME: 3.0
+
+func take_damage(amount, attacker_id):
+	_damage_taken[attacker_id] += amount
+	_aggro_target = get_player(attacker_id)
+	_aggro_lock_time = 3.0
+	
+	// Immediately interrupt wander/separate
+	if _state != CHASE:
+		_state = CHASE
+		_state_timer = randf_range(8, 12)
+
+func _get_aggro_target():
+	// Keep locked if valid + in range
+	if _aggro_lock_time > 0 and _aggro_target:
+		return _aggro_target
+	
+	// Find top damage dealer
+	return get_player_with_most_damage() or _find_nearest_player()
+```
+
+### Dash Mechanic
 ```gdscript
 // GameConstants.gd
-const USE_WEBSOCKET: bool = true  // Toggle ENet/WebSocket
+const PLAYER_DASH_SPEED: 600.0      // 2.7x normal
+const PLAYER_DASH_DURATION: 0.15    // Short burst
+const PLAYER_DASH_COOLDOWN: 2.0
+const BTN_DASH: 4
 
-// Net.gd - Auto-selects protocol
-if GameConstants.USE_WEBSOCKET:
-	peer = WebSocketMultiplayerPeer.new()
-	var protocol = "wss://" if port == 443 else "ws://"
-	peer.create_client(protocol + host + ":" + str(port))
-else:
-	peer = ENetMultiplayerPeer.new()
-	peer.create_client(host, port)
+// Player.gd
+var _dash_timer: float = 0.0
+var _dash_cooldown: float = 0.0
+var _dash_direction: Vector2
+
+func apply_input(mv, aim, buttons, dt):
+	// Activate dash
+	if buttons & BTN_DASH and _dash_cooldown <= 0 and mv.length() > 0:
+		_dash_timer = DASH_DURATION
+		_dash_cooldown = DASH_COOLDOWN
+		_dash_direction = mv.normalized()
+	
+	// Apply velocity
+	if _dash_timer > 0:
+		velocity = _dash_direction * DASH_SPEED
+	else:
+		velocity = mv * MOVE_SPEED
+
+// ClientMain.gd - spacebar mapped to ui_dash
+if Input.is_action_pressed("ui_dash"):
+	btn |= GameConstants.BTN_DASH
+
+// TODO: Change to is_action_just_pressed (prevent hold spam)
 ```
+
+## Networking Model
+**Server**: Authoritative, 60 FPS fixed timestep  
+**Client**: Prediction (local player) + Interpolation (remote entities)
 
 **Input Flow**:
 1. Client samples input → sends to server
 2. Client predicts locally (instant response)
 3. Server simulates → sends snapshot
-4. Client reconciles if misprediction (checks position + health)
+4. Client reconciles if misprediction
 
-**Entity Types**:
-- Players: Client predicts own, interpolates others
-- Enemies: Server-authoritative, client interpolates
-- Bullets: Client-predicted spawn, client collision, server validates damage
-- Walls: Server-authoritative, static (no interpolation, health-only updates)
-
-### Key Systems
-
-**Prediction/Reconciliation**:
-```gdscript
-_input_seq: int
-_pending_inputs: Array
-_predicted_states: Dictionary
-
-// Position-only reconciliation (optimized)
-var needs_reconcile = pred_pos.distance_to(srv_pos) >= RECONCILE_POSITION_THRESHOLD
-
-// Health applied separately from snapshots (no reconciliation)
-if new_health < player.health:
-	player._hurt_flash_timer = 0.2
-player.health = new_health
-```
-
-**Interpolation**:
-```gdscript
-_snap_buffers: Dictionary  // net_id -> [{tick, state}]
-INTERP_DELAY_TICKS: 2
-
-// Remote players and enemies interpolated
-// Walls skip interpolation (static, health-only updates)
-// Bullets skip interpolation (client-predicted)
-```
-
-**Wall Optimization**:
-```gdscript
-// Walls are static after placement
-// Only health updates from snapshots, no position interpolation
-if entity is Wall:
-	entity.health = state["h"]  // Update health only
-	continue  // Skip interpolation buffer
-```
-
-**Bullet Handling**:
-- Client spawns instantly (net_id=-1, authority=client_id)
-- Server spawns authoritative (sends RPC)
-- Client skips if owner matches
-- Collision runs both sides (visual + authoritative)
-
-**Hurt Flash** (All Entities):
-```gdscript
-// Player.gd / Enemy.gd pattern
-var _hurt_flash_timer: float = 0.0
-
-// Server: take_damage() sets timer
-func take_damage(amount: float) -> bool:
-	health -= amount
-	_hurt_flash_timer = 0.2
-
-// Client: detect health drop in apply_replicated_state()
-var new_health = state.get("h", health)
-if new_health < health:
-	_hurt_flash_timer = 0.2
-health = new_health
-
-// _process()/_physics_process(): Lerp to flash color
-if _hurt_flash_timer > 0.0:
-	var intensity = _hurt_flash_timer / 0.2
-	_sprite.modulate = FlashColor.lerp(BaseColor, 1.0 - intensity)
-```
-
-**Connection UI** (ClientMain.gd):
-```gdscript
-// Host/port inputs + Connect button
-// Defaults: web-production-5b732.up.railway.app:443
-// Skipped if --auto-connect flag present
-```
-
-**Local Player Visual**:
-```gdscript
-// Player.gd
-func _get_base_color() -> Color:
-	return Color.BLACK if is_local else _color_from_id(net_id)
-```
+**Entity Handling**:
+- Players: Predict own, interpolate others
+- Enemies: Server-authoritative, interpolate
+- Bullets: Client-predicted spawn, client collision
+- Walls: Static (health-only updates, no interpolation)
 
 ## Constants (GameConstants.gd)
 ```gdscript
-USE_WEBSOCKET: true
 PHYSICS_FPS: 60
 PLAYER_MOVE_SPEED: 220.0
-BULLET_SPEED: 800.0
+PLAYER_DASH_SPEED: 600.0
+ENEMY_AGGRO_RANGE: 600.0
+ENEMY_AGGRO_LOCK_TIME: 3.0
 INTERP_DELAY_TICKS: 2
 RECONCILE_POSITION_THRESHOLD: 5.0
 ```
 
-## Deployment (Railway.app)
-
-**Files**:
-- `Procfile`: `web: bash start.sh`
-- `start.sh`: Launches `builds/server/SentinelServer.x86_64`
-- `railway.json`: NIXPACKS builder config
-- Bootstrap.gd reads `$PORT` env var
-
-**Server**: web-production-5b732.up.railway.app:443
-
 ## Testing
-
-**Local Testing**:
 ```bash
-# Single client (auto-connect to localhost)
-run_client_local.bat
-
-# Full test session (1 server + 3 clients, auto-connect, quadrant layout)
-start_test_session.bat
-
-# Stop all
-stop_test_session.bat
-```
-
-**Flags**:
-- `--server` - Run as server
-- `--client` - Run as client
-- `--auto-connect` - Skip connection UI, connect immediately
-- `--host=X` - Server hostname
-- `--port=Y` - Server port
-
-## Design Goals (TODO.md)
-
-**Phase 1 - Feel Good** (Quick Wins):
-- Muzzle flash + shooting sound
-- Screen shake on damage
-- Health bar always visible
-- Minimap
-- Kill feed
-
-**Phase 2 - Core Loop**:
-- Loot drops from enemies
-- Pickup/inventory system
-- Resource gathering
-- World events (timed loot spawns)
-
-**Phase 3 - Anti-Bullying**:
-- Hot loot (AI aggro, map visibility, can't store)
-- Bounty system (kill low-level = bounty)
-- Lawfulness zones (Safe/Neutral/Lawless)
-- Robin Hood mechanics (raid rich = good loot)
-
-**Phase 4 - Progression**:
-- Player levels + XP
-- Equipment tiers
-- Base building expansion
-- Crafting system
-
-## Code Patterns
-
-**Entity Spawn (Server)**:
-```gdscript
-var entity = EntityType.new()
-entity.net_id = Replication.generate_id()
-entity.authority = 1
-_world.add_child(entity)
-Net.spawn_entity.rpc({"type": "...", "net_id": id, "pos": pos})
-```
-
-**Client Prediction**:
-```gdscript
-var cmd = {"seq": _seq, "mv": mv, "aim": aim, "btn": btn}
-Net.server_receive_input.rpc_id(1, cmd)
-entity.apply_input(mv, aim, btn, dt)
-_pending_inputs.append(cmd)
-_predicted_states[_seq] = entity.get_replicated_state()
-```
-
-**Interpolation**:
-```gdscript
-var render_tick = _latest_tick - INTERP_DELAY_TICKS
-var t = (render_tick - ta) / (tb - ta)
-entity.position = sa["p"].lerp(sb["p"], t)
-```
-
-**State Replication**:
-```gdscript
-// Player.gd
-func get_replicated_state() -> Dictionary:
-	return {"p": position, "r": rotation, "h": health, "v": velocity}
-
-func apply_replicated_state(state: Dictionary) -> void:
-	# Detect health decrease
-	var new_health = state.get("h", health)
-	if new_health < health:
-		_hurt_flash_timer = 0.2
-	health = new_health
+start_test_session.bat  # 1 server + 3 clients
+run_client_local.bat     # Single client → localhost
 ```
 
 ## Recent Changes
 
+**Session #2 - Logging, Static Sync, Enemy Aggro, Dash**:
+- Network diagnostics UI (F3 toggle)
+- Centralized logging system
+- Static wall resync (5s snapshots)
+- Enemy aggro (damage-based, 3s lock)
+- Dash mechanic (spacebar, 600 speed)
+- Bug fix: Silent despawn for missing entities
+
 **Session #1 - Network Optimization & Hurt Flash**:
-- Wall optimization: Static entities no longer interpolated (30-50% perf gain)
-- Position-only reconciliation: Health from snapshots (no rewind on damage)
-- Hurt flash for enemies: WHITE flash matching player behavior
-- Interpolation triggers hurt flash for remote entities
-- Docs: Architecture.md, wall_optimization.md, hurt_flash.md
-
-**Visual Polish**:
-- Hurt flash effect (RED for players, WHITE for enemies)
-- Local player color = black (easy identification)
-- Reconciliation optimized (position only, health separate)
-
-**Testing QoL**:
-- `--auto-connect` flag
-- `run_client_local.bat` for quick localhost testing
-- Auto-connect in test session
-
-**Deployment**:
-- Live on itch.io
-- Server running 24/7 on Railway
+- Wall optimization (static, no interpolation)
+- Position-only reconciliation
+- Hurt flash for enemies
 
 ## Known Issues
-None currently
+- Dash uses `is_action_pressed` instead of `is_action_just_pressed` (sends spam while held)
 
 ## Next Session
-Start with Quick Wins from TODO.md:
-- Muzzle flash
-- Shooting sound
-- Screen shake
+- Fix dash input (just_pressed)
+- Muzzle flash + shooting sound
+- Screen shake on damage
 - Health bar improvements
-- Kill feed

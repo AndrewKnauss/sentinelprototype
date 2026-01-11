@@ -22,8 +22,8 @@ enum Category {
 
 # Global enable/disable per category
 var _enabled: Dictionary = {
-	Category.NETWORK: true,
-	Category.ENTITY: true,
+	Category.NETWORK: false,
+	Category.ENTITY: false,
 	Category.SNAPSHOT: false,  # Very spammy
 	Category.INPUT: false,     # Very spammy
 	Category.RECONCILE: true,

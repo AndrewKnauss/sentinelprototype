@@ -115,7 +115,7 @@ func _ready() -> void:
 	# END CONNECTION UI
 	
 	var title = Label.new()
-	title.text = "CLIENT - WASD=Move, Mouse=Aim, LMB=Shoot, RMB=Build"
+	title.text = "CLIENT - WASD=Move, Mouse=Aim, LMB=Shoot, RMB=Build, SPACE=Dash"
 	title.position = Vector2(10, 10)
 	add_child(title)
 	
@@ -246,6 +246,8 @@ func _send_and_predict(dt: float) -> void:
 		btn |= GameConstants.BTN_SHOOT
 	if Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
 		btn |= GameConstants.BTN_BUILD
+	if Input.is_action_pressed("ui_dash"):
+		btn |= GameConstants.BTN_DASH
 	
 	_input_seq += 1
 	var cmd = {"seq": _input_seq, "mv": mv, "aim": aim, "btn": btn}

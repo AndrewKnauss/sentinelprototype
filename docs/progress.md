@@ -43,6 +43,15 @@
 - ✅ Export configs (Procfile, railway.json, start.sh)
 
 ## Latest Session Summary (Jan 2026)
+**Session #2 - Logging, Static Sync, Enemy Aggro, Dash**
+- Network diagnostics UI: F3 toggle overlay with FPS, ping, packet loss, reconciliation stats
+- Centralized logging system: Category-based filtering (NETWORK, ENTITY, SNAPSHOT, etc.)
+- Static entity resync: Reliable wall spawns + 5s full-state snapshots (catches desync)
+- Enemy aggro system: Damage-based targeting with 3s sticky lock, immediate chase interrupt
+- Dash mechanic: Spacebar for 0.15s speed burst (600 speed), 2s cooldown
+- Bug fix: Silent despawn for missing entities (short-lived bullets)
+- TODO: Fix dash to use just_pressed instead of pressed (prevent hold spam)
+
 **Session #1 - Network Optimization & Hurt Flash**
 - Wall optimization: Static entities no longer interpolated (30-50% performance gain)
 - Position-only reconciliation: Health applied directly from snapshots (no rewind/replay)

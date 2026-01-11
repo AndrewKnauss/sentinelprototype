@@ -12,6 +12,9 @@ var velocity: Vector2 = Vector2.ZERO
 var is_local: bool = false
 
 var _shoot_cooldown: float = 0.0
+var _dash_timer: float = 0.0  # Active dash time
+var _dash_cooldown: float = 0.0  # Time until next dash
+var _dash_direction: Vector2 = Vector2.ZERO  # Direction of current dash
 var _sprite: Sprite2D
 var _label: Label
 var _health_bar: ColorRect
@@ -54,6 +57,8 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_shoot_cooldown -= delta
+	_dash_timer -= delta
+	_dash_cooldown -= delta
 	_update_health_bar()
 	
 	# Hurt flash effect
@@ -70,7 +75,19 @@ func apply_input(mv: Vector2, aim: Vector2, buttons: int, dt: float) -> void:
 	if mv.length() > 1.0:
 		mv = mv.normalized()
 	
-	velocity = mv * GameConstants.PLAYER_MOVE_SPEED
+	# Handle dash
+	if buttons & GameConstants.BTN_DASH and _dash_cooldown <= 0.0 and mv.length() > 0.01:
+		# Start dash
+		_dash_timer = GameConstants.PLAYER_DASH_DURATION
+		_dash_cooldown = GameConstants.PLAYER_DASH_COOLDOWN
+		_dash_direction = mv.normalized()
+	
+	# Apply movement (dash overrides normal movement)
+	if _dash_timer > 0.0:
+		velocity = _dash_direction * GameConstants.PLAYER_DASH_SPEED
+	else:
+		velocity = mv * GameConstants.PLAYER_MOVE_SPEED
+	
 	global_position += velocity * dt
 	
 	# Clamp to world bounds
