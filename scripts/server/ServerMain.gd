@@ -68,7 +68,22 @@ func _physics_process(_delta: float) -> void:
 			
 			# Shooting
 			if btn & GameConstants.BTN_SHOOT and player.shoot():
-				_spawn_bullet(player.global_position, aim, peer_id)
+				# Get weapon damage
+				var weapon_damage = GameConstants.BULLET_DAMAGE
+				if player.equipped_weapon:
+					weapon_damage = player.equipped_weapon.data.get("damage", GameConstants.BULLET_DAMAGE)
+				
+				# Spawn multiple pellets for shotguns
+				var pellets = 1
+				var spread = 0.0
+				if player.equipped_weapon:
+					pellets = player.equipped_weapon.data.get("pellets", 1)
+					spread = player.equipped_weapon.data.get("spread", 0.0)
+				
+				for i in range(pellets):
+					var spread_angle = randf_range(-spread, spread)
+					var fire_dir = aim.rotated(spread_angle)
+					_spawn_bullet(player.global_position, fire_dir, peer_id, weapon_damage)
 			
 			# Building
 			if btn & GameConstants.BTN_BUILD:
@@ -126,11 +141,11 @@ func _cleanup_bullets() -> void:
 		_bullets.erase(bullet)
 
 
-func _spawn_bullet(pos: Vector2, dir: Vector2, owner: int) -> void:
+func _spawn_bullet(pos: Vector2, dir: Vector2, owner: int, dmg: float = GameConstants.BULLET_DAMAGE) -> void:
 	var bullet = Bullet.new()
 	bullet.net_id = Replication.generate_id()
 	bullet.authority = 1
-	bullet.initialize(pos, dir.normalized(), owner)
+	bullet.initialize(pos, dir.normalized(), owner, dmg)
 	_world.add_child(bullet)
 	_bullets.append(bullet)
 	
@@ -139,7 +154,7 @@ func _spawn_bullet(pos: Vector2, dir: Vector2, owner: int) -> void:
 		"type": "bullet",
 		"net_id": bullet.net_id,
 		"pos": pos,
-		"extra": {"dir": dir.normalized(), "owner": owner}
+		"extra": {"dir": dir.normalized(), "owner": owner, "damage": dmg}
 	})
 
 
@@ -149,7 +164,7 @@ func _spawn_enemy(pos: Vector2) -> void:
 	enemy.authority = 1
 	enemy.global_position = pos
 	enemy.died.connect(func(_id): _respawn_enemy(enemy))
-	enemy.wants_to_shoot.connect(func(dir): _spawn_bullet(enemy.global_position, dir, 0))
+	enemy.wants_to_shoot.connect(func(dir): _spawn_bullet(enemy.global_position, dir, 0, GameConstants.BULLET_DAMAGE))
 	_world.add_child(enemy)
 	_enemies.append(enemy)
 	

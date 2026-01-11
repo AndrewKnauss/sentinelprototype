@@ -9,6 +9,7 @@ class_name Bullet
 
 var velocity: Vector2 = Vector2.ZERO
 var owner_id: int = 0  # Who fired this bullet
+var damage: float = GameConstants.BULLET_DAMAGE  # Damage dealt
 var lifetime: float = GameConstants.BULLET_LIFETIME
 
 var _sprite: Sprite2D
@@ -46,12 +47,13 @@ func _physics_process(delta: float) -> void:
 		queue_free()
 
 
-func initialize(pos: Vector2, dir: Vector2, owner: int) -> void:
+func initialize(pos: Vector2, dir: Vector2, owner: int, dmg: float = GameConstants.BULLET_DAMAGE) -> void:
 	"""Initialize bullet state."""
 	global_position = pos
 	velocity = dir * GameConstants.BULLET_SPEED
 	rotation = dir.angle()
 	owner_id = owner
+	damage = dmg
 
 
 func get_replicated_state() -> Dictionary:
@@ -120,7 +122,7 @@ func _on_hit_wall(wall: Wall) -> void:
 	"""Handle wall collision."""
 	if Net.is_server():
 		# Server: Apply damage
-		if wall.take_damage(GameConstants.BULLET_DAMAGE):
+		if wall.take_damage(damage):
 			# Wall destroyed - it will emit destroyed signal
 			pass
 		# Tell clients to despawn this bullet
@@ -134,7 +136,7 @@ func _on_hit_player(player: Player) -> void:
 	"""Handle player collision."""
 	if Net.is_server():
 		# Server: Apply damage
-		if player.take_damage(GameConstants.BULLET_DAMAGE):
+		if player.take_damage(damage):
 			# Player killed - need to respawn
 			var spawn_pos = Vector2(
 				randf_range(GameConstants.SPAWN_MIN.x, GameConstants.SPAWN_MAX.x),
@@ -152,7 +154,7 @@ func _on_hit_enemy(enemy: Enemy) -> void:
 	"""Handle enemy collision."""
 	if Net.is_server():
 		# Server: Apply damage with attacker ID
-		if enemy.take_damage(GameConstants.BULLET_DAMAGE, owner_id):
+		if enemy.take_damage(damage, owner_id):
 			# Enemy killed - it will emit died signal which ServerMain handles
 			pass
 		# Tell clients to despawn this bullet

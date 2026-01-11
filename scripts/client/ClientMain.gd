@@ -56,6 +56,7 @@ var _last_server_state: Dictionary = {}
 # Network diagnostics
 var _debug_visible: bool = false
 var _debug_label: Label
+var _ammo_label: Label  # Weapon ammo display
 var _last_snapshot_time: float = 0.0
 var _snapshot_count: int = 0
 var _last_ack_time: float = 0.0
@@ -115,7 +116,7 @@ func _ready() -> void:
 	# END CONNECTION UI
 	
 	var title = Label.new()
-	title.text = "CLIENT - WASD=Move, Mouse=Aim, LMB=Shoot, RMB=Build, SPACE=Dash, SHIFT=Sprint"
+	title.text = "CLIENT - WASD=Move, Mouse=Aim, LMB=Shoot, RMB=Build, SPACE=Dash, SHIFT=Sprint, R=Reload, 1/2/3=Switch Weapon"
 	title.position = Vector2(10, 10)
 	add_child(title)
 	
@@ -126,6 +127,13 @@ func _ready() -> void:
 	_debug_label.modulate = Color(1, 1, 0, 0.9)  # Yellow
 	_debug_label.visible = false
 	add_child(_debug_label)
+	
+	# Ammo HUD (bottom-right)
+	_ammo_label = Label.new()
+	_ammo_label.position = Vector2(DisplayServer.window_get_size().x - 200, DisplayServer.window_get_size().y - 80)
+	_ammo_label.add_theme_font_size_override("font_size", 24)
+	_ammo_label.modulate = Color(1, 1, 1, 1)
+	add_child(_ammo_label)
 	
 	Net.client_connected.connect(func(id): 
 		_my_id = id
@@ -149,6 +157,7 @@ func _physics_process(_delta: float) -> void:
 	if _players.has(_my_id):
 		var player = _players[_my_id]
 		_camera.global_position = player.global_position
+		_update_ammo_hud(player)
 	
 	# Local prediction
 	if _players.has(_my_id):
@@ -250,6 +259,14 @@ func _send_and_predict(dt: float) -> void:
 		btn |= GameConstants.BTN_DASH
 	if Input.is_key_pressed(KEY_SHIFT):
 		btn |= GameConstants.BTN_SPRINT
+	if Input.is_key_pressed(KEY_R):
+		btn |= GameConstants.BTN_RELOAD
+	if Input.is_key_pressed(KEY_1):
+		btn |= GameConstants.BTN_SWITCH_1
+	if Input.is_key_pressed(KEY_2):
+		btn |= GameConstants.BTN_SWITCH_2
+	if Input.is_key_pressed(KEY_3):
+		btn |= GameConstants.BTN_SWITCH_3
 	
 	_input_seq += 1
 	var cmd = {"seq": _input_seq, "mv": mv, "aim": aim, "btn": btn}
@@ -261,7 +278,22 @@ func _send_and_predict(dt: float) -> void:
 	
 	# CLIENT-SIDE PREDICTION: Spawn bullet immediately for instant feedback
 	if btn & GameConstants.BTN_SHOOT and player.shoot():
-		_spawn_predicted_bullet(player.global_position, aim)
+		# Get weapon damage for client-side bullet
+		var weapon_damage = GameConstants.BULLET_DAMAGE
+		if player.equipped_weapon:
+			weapon_damage = player.equipped_weapon.data.get("damage", GameConstants.BULLET_DAMAGE)
+		
+		# Spawn pellets for shotguns
+		var pellets = 1
+		var spread = 0.0
+		if player.equipped_weapon:
+			pellets = player.equipped_weapon.data.get("pellets", 1)
+			spread = player.equipped_weapon.data.get("spread", 0.0)
+		
+		for i in range(pellets):
+			var spread_angle = randf_range(-spread, spread)
+			var fire_dir = aim.rotated(spread_angle)
+			_spawn_predicted_bullet(player.global_position, fire_dir, weapon_damage)
 	
 	# Predict locally
 	player.apply_input(mv, aim, btn, dt)
@@ -534,12 +566,12 @@ func _drop_confirmed(ack_seq: int) -> void:
 #Spawn bullet immediately for instant client-side feedback.
 #Client predicts bullet spawn/trajectory for zero-latency shooting.
 #Server will also spawn authoritative bullet and validate damage.
-func _spawn_predicted_bullet(pos: Vector2, dir: Vector2) -> void:
+func _spawn_predicted_bullet(pos: Vector2, dir: Vector2, dmg: float = GameConstants.BULLET_DAMAGE) -> void:
 
 	var bullet = Bullet.new()
 	bullet.net_id = -1  # Temporary ID for predicted bullets
 	bullet.authority = _my_id
-	bullet.initialize(pos, dir.normalized(), _my_id)
+	bullet.initialize(pos, dir.normalized(), _my_id, dmg)
 	_world.add_child(bullet)
 	Log.entity("Spawned predicted bullet at %v" % pos)
 
@@ -569,3 +601,26 @@ func _on_static_snapshot(states: Dictionary) -> void:
 			# Update existing wall health
 			if wall is Wall:
 				wall.health = state["health"]
+
+
+func _update_ammo_hud(player: Player) -> void:
+	"""Update ammo display for local player."""
+	if not player.equipped_weapon:
+		_ammo_label.text = ""
+		return
+	
+	var weapon = player.equipped_weapon
+	var weapon_name = weapon.data.get("name", "Unknown")
+	
+	# Show ammo
+	if weapon.data.get("ammo_type") == null:
+		# Infinite ammo (pistol)
+		_ammo_label.text = "%s: %d / ∞" % [weapon_name, weapon.ammo_loaded]
+	else:
+		# Normal ammo
+		_ammo_label.text = "%s: %d / %d" % [weapon_name, weapon.ammo_loaded, weapon.ammo_reserve]
+	
+	# Show reload indicator
+	if weapon.is_reloading:
+		var reload_pct = int((1.0 - weapon.reload_timer / weapon.data.reload_time) * 100)
+		_ammo_label.text += " [RELOADING %d%%]" % reload_pct

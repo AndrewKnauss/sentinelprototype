@@ -17,6 +17,11 @@ var _dash_cooldown: float = 0.0  # Time until next dash
 var _dash_direction: Vector2 = Vector2.ZERO  # Direction of current dash
 var stamina: float = GameConstants.PLAYER_STAMINA_MAX
 var is_sprinting: bool = false
+
+# Weapon system
+var equipped_weapon: Weapon = null
+var inventory_weapons: Array = []  # Up to 3 weapons
+
 var _sprite: Sprite2D
 var _label: Label
 var _health_bar: ColorRect
@@ -64,6 +69,27 @@ func _ready() -> void:
 	_stamina_bar.color = Color.YELLOW
 	_stamina_bar.visible = false  # Hide when full
 	add_child(_stamina_bar)
+	
+	# Setup starting weapon (pistol)
+	var pistol = Weapon.new()
+	pistol.data = WeaponData.PISTOL
+	add_child(pistol)
+	inventory_weapons.append(pistol)
+	equipped_weapon = pistol
+	
+	# Add rifle for testing
+	var rifle = Weapon.new()
+	rifle.data = WeaponData.RIFLE
+	rifle.ammo_reserve = 120  # 4 mags
+	add_child(rifle)
+	inventory_weapons.append(rifle)
+	
+	# Add shotgun for testing
+	var shotgun = Weapon.new()
+	shotgun.data = WeaponData.SHOTGUN
+	shotgun.ammo_reserve = 24  # 4 mags
+	add_child(shotgun)
+	inventory_weapons.append(shotgun)
 
 
 func _process(delta: float) -> void:
@@ -86,6 +112,23 @@ func apply_input(mv: Vector2, aim: Vector2, buttons: int, dt: float) -> void:
 	"""Apply player input (movement and aiming)."""
 	if mv.length() > 1.0:
 		mv = mv.normalized()
+	
+	# Tick weapon cooldowns
+	if equipped_weapon:
+		equipped_weapon.tick(dt)
+	
+	# Reload
+	if buttons & GameConstants.BTN_RELOAD:
+		if equipped_weapon:
+			equipped_weapon.start_reload()
+	
+	# Weapon switching
+	if buttons & GameConstants.BTN_SWITCH_1 and inventory_weapons.size() > 0:
+		equipped_weapon = inventory_weapons[0]
+	elif buttons & GameConstants.BTN_SWITCH_2 and inventory_weapons.size() > 1:
+		equipped_weapon = inventory_weapons[1]
+	elif buttons & GameConstants.BTN_SWITCH_3 and inventory_weapons.size() > 2:
+		equipped_weapon = inventory_weapons[2]
 	
 	# Handle dash
 	if buttons & GameConstants.BTN_DASH and _dash_cooldown <= 0.0 and mv.length() > 0.01:
@@ -128,11 +171,9 @@ func apply_input(mv: Vector2, aim: Vector2, buttons: int, dt: float) -> void:
 
 func shoot() -> bool:
 	"""Attempt to shoot. Returns true if shot was fired."""
-	if _shoot_cooldown > 0:
-		return false
-	
-	_shoot_cooldown = GameConstants.PLAYER_SHOOT_COOLDOWN
-	return true
+	if equipped_weapon:
+		return equipped_weapon.shoot()
+	return false
 
 
 func take_damage(amount: float) -> bool:
@@ -153,12 +194,14 @@ func respawn(pos: Vector2) -> void:
 
 
 func get_replicated_state() -> Dictionary:
+	var weapon_state = equipped_weapon.get_state() if equipped_weapon else {"id": "pistol", "loaded": 12, "reserve": 999, "reloading": false}
 	return {
 		"p": global_position,
 		"r": rotation,
 		"h": health,
 		"v": velocity,
-		"s": stamina
+		"s": stamina,
+		"w": weapon_state
 	}
 
 
@@ -174,6 +217,10 @@ func apply_replicated_state(state: Dictionary) -> void:
 	
 	velocity = state.get("v", velocity)
 	stamina = state.get("s", stamina)
+	
+	# Apply weapon state
+	if equipped_weapon and state.has("w"):
+		equipped_weapon.apply_state(state["w"])
 
 
 func _update_health_bar() -> void:

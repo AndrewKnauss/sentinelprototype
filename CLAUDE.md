@@ -24,14 +24,17 @@ scripts/
 ├── client/ClientMain.gd      # Prediction + interpolation
 ├── server/ServerMain.gd      # Authoritative simulation
 ├── entities/
-│   ├── Player.gd            # Networked player (dash mechanic)
+│   ├── Player.gd            # Networked player (dash, sprint, weapons)
 │   ├── Enemy.gd             # AI enemy (aggro system)
 │   ├── Bullet.gd            # Client-predicted projectile
 │   └── Wall.gd              # Buildable structure
+├── components/
+│   └── Weapon.gd            # Weapon component (ammo, reload)
 ├── shared/
 │   ├── NetworkedEntity.gd   # Base replicated entity
 │   ├── ReplicationManager.gd # Entity registry
-│   └── GameConstants.gd     # Shared constants
+│   ├── GameConstants.gd     # Shared constants
+│   └── WeaponData.gd        # Weapon definitions
 └── net/Net.gd               # Dual protocol transport
 ```
 
@@ -191,12 +194,18 @@ run_client_local.bat     # Single client → localhost
 
 ## Recent Changes
 
-**Session #3 - Sprint System**:
+**Session #3 - Sprint & Weapon System**:
 - Sprint mechanic (Shift key, 330 speed = 1.5x base)
 - Stamina system (100 max, drains 20/sec, regens 15/sec)
 - Stamina bar UI (yellow, below health, hides when full)
-- Network sync for stamina state
-- Movement priority: Dash > Sprint > Normal
+- **Weapon system** (5 types: Pistol, Rifle, Shotgun, Sniper, SMG)
+- Weapon data (damage, fire rate, spread, pellets)
+- Ammo & reload mechanics (R key)
+- Weapon switching (1/2/3 keys)
+- Multi-pellet shotgun
+- Ammo HUD display (bottom-right)
+- Network sync for weapon state
+- Players start with Pistol/Rifle/Shotgun for testing
 
 **Session #2 - Logging, Static Sync, Enemy Aggro, Dash**:
 - Network diagnostics UI (F3 toggle)
@@ -215,6 +224,6 @@ run_client_local.bat     # Single client → localhost
 - None currently
 
 ## Next Session
-- Weapon system (5 types, switching, ammo display)
 - Enemy variety (Scout, Tank, Sniper at minimum)
 - Polish pass (muzzle flash, shooting sound, screen shake)
+- Test weapon balance (fire rates, damage, spread)

@@ -62,3 +62,7 @@ const BTN_SHOOT: int = 1
 const BTN_BUILD: int = 2
 const BTN_DASH: int = 4
 const BTN_SPRINT: int = 8
+const BTN_RELOAD: int = 16
+const BTN_SWITCH_1: int = 32
+const BTN_SWITCH_2: int = 64
+const BTN_SWITCH_3: int = 128

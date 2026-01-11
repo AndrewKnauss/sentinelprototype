@@ -8,3 +8,10 @@ Starting a new session, use CLAUDE.MD for persistent context (<5k Tokens)
 Using filesystem.
 
 
+
+
+
+/compact Focus on code samples and API usage 
+Starting a new session, use CLAUDE.MD for persistent context (<5k Tokens) 
+Using filesystem. 
+Read docs/TODO.md and docs/SYSTEM_DESIGN_INDEX.md for context and next steps.
