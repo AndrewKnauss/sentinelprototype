@@ -4,11 +4,14 @@
 **Sentinel Prototype** - Top-down 2D multiplayer survival (Rust-like progression)  
 Humans vs machines + PvP/raiding, scavenging sandbox
 
+**Live Game**: https://woolachee.itch.io/sentinel  
+**Server**: web-production-5b732.up.railway.app:443
+
 ## Tech Stack
 - **Engine**: Godot 4.4.1
 - **Language**: GDScript
 - **Networking**: WebSocket (default) / ENet (toggle)
-- **Hosting**: Railway.app (web-production-5b732.up.railway.app:443)
+- **Hosting**: Railway.app
 - **Resolution**: 1920x1080 fullscreen
 
 ## Architecture
@@ -16,11 +19,11 @@ Humans vs machines + PvP/raiding, scavenging sandbox
 ### Core Files
 ```
 scripts/
-├── Bootstrap.gd              # Entry (--server/--client, reads Railway PORT)
+├── Bootstrap.gd              # Entry (--server/--client, reads Railway PORT, --auto-connect)
 ├── client/ClientMain.gd      # Prediction + interpolation + connection UI
 ├── server/ServerMain.gd      # Authoritative simulation
 ├── entities/
-│   ├── Player.gd            # Networked player
+│   ├── Player.gd            # Networked player (hurt flash, black if local)
 │   ├── Enemy.gd             # AI enemy (chase/wander/separate)
 │   ├── Bullet.gd            # Client-predicted projectile
 │   └── Wall.gd              # Buildable structure
@@ -54,7 +57,7 @@ else:
 1. Client samples input → sends to server
 2. Client predicts locally (instant response)
 3. Server simulates → sends snapshot
-4. Client reconciles if misprediction
+4. Client reconciles if misprediction (checks position + health)
 
 **Entity Types**:
 - Players: Client predicts own, interpolates others
@@ -69,6 +72,12 @@ else:
 _input_seq: int
 _pending_inputs: Array
 _predicted_states: Dictionary
+
+// Reconciliation checks ALL state
+var needs_reconcile = (
+    pred_pos.distance_to(srv_pos) >= RECONCILE_POSITION_THRESHOLD or
+    abs(pred_health - srv_health) > 0.01
+)
 ```
 
 **Interpolation**:
@@ -83,10 +92,30 @@ INTERP_DELAY_TICKS: 2
 - Client skips if owner matches
 - Collision runs both sides (visual + authoritative)
 
+**Hurt Flash** (Player.gd):
+```gdscript
+// Server: take_damage() sets _hurt_flash_timer = 0.2
+// Client: apply_replicated_state() detects health drop, sets timer
+// _process(): Lerps sprite RED -> base_color over 0.2s
+
+if _hurt_flash_timer > 0.0:
+    _hurt_flash_timer -= delta
+    var flash_intensity = _hurt_flash_timer / 0.2
+    _sprite.modulate = Color.RED.lerp(_get_base_color(), 1.0 - flash_intensity)
+```
+
 **Connection UI** (ClientMain.gd):
 ```gdscript
 // Host/port inputs + Connect button
 // Defaults: web-production-5b732.up.railway.app:443
+// Skipped if --auto-connect flag present
+```
+
+**Local Player Visual**:
+```gdscript
+// Player.gd
+func _get_base_color() -> Color:
+    return Color.BLACK if is_local else _color_from_id(net_id)
 ```
 
 ## Constants (GameConstants.gd)
@@ -110,14 +139,52 @@ RECONCILE_POSITION_THRESHOLD: 5.0
 **Server**: web-production-5b732.up.railway.app:443
 
 ## Testing
-**Local**: `start_test_session.bat` (1 server + 3 clients, quadrant layout)  
-**Cloud**: Client connects via UI to Railway server
 
-## Design Goals
+**Local Testing**:
+```bash
+# Single client (auto-connect to localhost)
+run_client_local.bat
+
+# Full test session (1 server + 3 clients, auto-connect, quadrant layout)
+start_test_session.bat
+
+# Stop all
+stop_test_session.bat
+```
+
+**Flags**:
+- `--server` - Run as server
+- `--client` - Run as client
+- `--auto-connect` - Skip connection UI, connect immediately
+- `--host=X` - Server hostname
+- `--port=Y` - Server port
+
+## Design Goals (TODO.md)
+
+**Phase 1 - Feel Good** (Quick Wins):
+- Muzzle flash + shooting sound
+- Screen shake on damage
+- Health bar always visible
+- Minimap
+- Kill feed
+
+**Phase 2 - Core Loop**:
+- Loot drops from enemies
+- Pickup/inventory system
+- Resource gathering
 - World events (timed loot spawns)
-- Anti-bullying (hot loot, bounties)
-- Lawfulness zones (PvP consequences vary)
-- Resource gathering + crafting
+
+**Phase 3 - Anti-Bullying**:
+- Hot loot (AI aggro, map visibility, can't store)
+- Bounty system (kill low-level = bounty)
+- Lawfulness zones (Safe/Neutral/Lawless)
+- Robin Hood mechanics (raid rich = good loot)
+
+**Phase 4 - Progression**:
+- Player levels + XP
+- Equipment tiers
+- Base building expansion
+- Crafting system
 
 ## Code Patterns
 
@@ -136,6 +203,7 @@ var cmd = {"seq": _seq, "mv": mv, "aim": aim, "btn": btn}
 Net.server_receive_input.rpc_id(1, cmd)
 entity.apply_input(mv, aim, btn, dt)
 _pending_inputs.append(cmd)
+_predicted_states[_seq] = entity.get_replicated_state()
 ```
 
 **Interpolation**:
@@ -145,13 +213,43 @@ var t = (render_tick - ta) / (tb - ta)
 entity.position = sa["p"].lerp(sb["p"], t)
 ```
 
-## Recent Changes
-- WebSocket implementation (browser support)
-- Railway deployment (cloud server)
-- Connection UI (no auto-connect)
-- WSS support for HTTPS
+**State Replication**:
+```gdscript
+// Player.gd
+func get_replicated_state() -> Dictionary:
+    return {"p": position, "r": rotation, "h": health, "v": velocity}
 
-## Next
-- HTML5 export → itch.io
-- World events system
-- Inventory/loot
+func apply_replicated_state(state: Dictionary) -> void:
+    # Detect health decrease
+    var new_health = state.get("h", health)
+    if new_health < health:
+        _hurt_flash_timer = 0.2
+    health = new_health
+```
+
+## Recent Changes
+
+**Visual Polish**:
+- Hurt flash effect (red flash on damage)
+- Local player color = black (easy identification)
+- Reconciliation checks position + health (not just position)
+
+**Testing QoL**:
+- `--auto-connect` flag
+- `run_client_local.bat` for quick localhost testing
+- Auto-connect in test session
+
+**Deployment**:
+- Live on itch.io
+- Server running 24/7 on Railway
+
+## Known Issues
+None currently
+
+## Next Session
+Start with Quick Wins from TODO.md:
+- Muzzle flash
+- Shooting sound
+- Screen shake
+- Health bar improvements
+- Kill feed

@@ -39,23 +39,14 @@
 - ✅ Export configs (Procfile, railway.json, start.sh)
 
 ## Latest Session Summary (Jan 2026)
-**Visual Polish & Quality of Life**
-- Added hurt flash effect (players flash red when damaged)
-- Local player now appears black (easy identification)
-- Reconciliation checks all state (position + health)
-- Added --auto-connect flag for local testing
-- Created run_client_local.bat for quick localhost testing
-- Updated test session to auto-connect all clients
-- Deployed to itch.io: https://woolachee.itch.io/sentinel
-- Created TODO.md with full feature roadmap
-
-**Previous: WebSocket Migration & Cloud Deployment**
+**WebSocket Migration & Cloud Deployment**
 - Added USE_WEBSOCKET flag to GameConstants
 - Implemented dual protocol support (ENet/WebSocket)
 - Created Railway deployment configs
 - Deployed server to Railway.app
 - Added connection UI to client
 - Successfully tested client → cloud server connection
+- Ready for HTML5 export to itch.io
 
 ## In Progress
 - HTML5 export for browser play
