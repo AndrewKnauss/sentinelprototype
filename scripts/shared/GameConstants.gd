@@ -23,6 +23,7 @@ const ENEMY_MAX_HEALTH: float = 150.0
 const ENEMY_SHOOT_COOLDOWN: float = 2.0
 const ENEMY_SHOOT_RANGE: float = 400.0
 const ENEMY_RESPAWN_TIME: float = 10.0
+const ENEMY_FRIENDLY_FIRE: bool = false  # Set to false to disable enemy-to-enemy damage
 
 # Bullet
 const BULLET_SPEED: float = 400.0

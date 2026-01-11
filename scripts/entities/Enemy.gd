@@ -11,10 +11,14 @@ class_name Enemy
 signal died(enemy_id: int)
 signal wants_to_shoot(direction: Vector2)
 
+enum State { CHASE, WANDER, SEPARATE }
+
 var health: float = GameConstants.ENEMY_MAX_HEALTH
 var velocity: Vector2 = Vector2.ZERO
 var target_player: Player = null
 
+var _state: State = State.WANDER
+var _state_timer: float = 0.0
 var _shoot_cooldown: float = 0.0
 var _wander_timer: float = 0.0
 var _wander_target: Vector2 = Vector2.ZERO
@@ -48,6 +52,7 @@ func _ready() -> void:
 	add_child(_health_bar)
 	
 	_pick_new_wander_target()
+	_state_timer = randf_range(8.0, 12.0)  # Random initial timer
 
 
 func _physics_process(delta: float) -> void:
@@ -58,14 +63,58 @@ func _physics_process(delta: float) -> void:
 	
 	_shoot_cooldown -= delta
 	_wander_timer -= delta
+	_state_timer -= delta
+	
+	# State machine transitions
+	if _state_timer <= 0:
+		_transition_to_next_state()
 	
 	# Find nearest player
 	target_player = _find_nearest_player()
 	
-	if target_player:
-		_ai_chase_and_shoot(delta)
+	# Execute current state
+	match _state:
+		State.CHASE:
+			if target_player:
+				_ai_chase_and_shoot(delta)
+			else:
+				_state = State.WANDER
+				_state_timer = randf_range(5.0, 8.0)
+		State.WANDER:
+			_ai_wander(delta)
+		State.SEPARATE:
+			_ai_separate(delta)
+
+
+func _transition_to_next_state() -> void:
+	"""Transition between states based on situation."""
+	# Check if too close to other enemies
+	if _is_crowded():
+		_state = State.SEPARATE
+		_state_timer = randf_range(3.0, 5.0)
+		return
+	
+	# Otherwise alternate between chase and wander
+	if target_player and _state != State.CHASE:
+		_state = State.CHASE
+		_state_timer = randf_range(8.0, 12.0)
 	else:
-		_ai_wander(delta)
+		_state = State.WANDER
+		_state_timer = randf_range(5.0, 8.0)
+		_pick_new_wander_target()
+
+
+func _is_crowded() -> bool:
+	"""Check if too many enemies are nearby."""
+	var nearby_count = 0
+	for entity in Replication.get_all_entities():
+		if entity is Enemy and entity != self:
+			var dist = global_position.distance_to(entity.global_position)
+			if dist < 60:  # Too close threshold
+				nearby_count += 1
+				if nearby_count >= 2:
+					return true
+	return false
 
 
 func _ai_chase_and_shoot(delta: float) -> void:
@@ -76,7 +125,7 @@ func _ai_chase_and_shoot(delta: float) -> void:
 	# Aim at player
 	rotation = to_player.angle()
 	
-	# Move toward player
+	# Move toward player (with some spacing)
 	if dist > 200:
 		velocity = to_player.normalized() * GameConstants.ENEMY_MOVE_SPEED
 		global_position += velocity * delta
@@ -101,6 +150,30 @@ func _ai_wander(delta: float) -> void:
 		rotation = to_target.angle()
 	else:
 		velocity = Vector2.ZERO
+
+
+func _ai_separate(delta: float) -> void:
+	"""Move away from other enemies to avoid clustering."""
+	var separation = Vector2.ZERO
+	var count = 0
+	
+	for entity in Replication.get_all_entities():
+		if entity is Enemy and entity != self:
+			var to_other = global_position - entity.global_position
+			var dist = to_other.length()
+			if dist < 100:  # Separation radius
+				separation += to_other.normalized() / max(dist, 0.1)
+				count += 1
+	
+	if count > 0:
+		separation = separation.normalized()
+		velocity = separation * GameConstants.ENEMY_MOVE_SPEED
+		global_position += velocity * delta
+		rotation = separation.angle()
+	else:
+		# No enemies nearby, go back to wandering
+		_state = State.WANDER
+		_state_timer = randf_range(5.0, 8.0)
 
 
 func _pick_new_wander_target() -> void:
