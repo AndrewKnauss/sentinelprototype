@@ -168,11 +168,19 @@ if Input.is_action_pressed("ui_dash"):
 ```gdscript
 PHYSICS_FPS: 60
 PLAYER_MOVE_SPEED: 220.0
-PLAYER_DASH_SPEED: 600.0
+PLAYER_DASH_SPEED: 1000.0
+PLAYER_SPRINT_SPEED: 330.0
+PLAYER_STAMINA_MAX: 100.0
+PLAYER_STAMINA_COST: 20.0 (per sec)
+PLAYER_STAMINA_REGEN: 15.0 (per sec)
 ENEMY_AGGRO_RANGE: 600.0
 ENEMY_AGGRO_LOCK_TIME: 3.0
 INTERP_DELAY_TICKS: 2
 RECONCILE_POSITION_THRESHOLD: 5.0
+BTN_SHOOT: 1
+BTN_BUILD: 2
+BTN_DASH: 4
+BTN_SPRINT: 8
 ```
 
 ## Testing
@@ -183,12 +191,19 @@ run_client_local.bat     # Single client → localhost
 
 ## Recent Changes
 
+**Session #3 - Sprint System**:
+- Sprint mechanic (Shift key, 330 speed = 1.5x base)
+- Stamina system (100 max, drains 20/sec, regens 15/sec)
+- Stamina bar UI (yellow, below health, hides when full)
+- Network sync for stamina state
+- Movement priority: Dash > Sprint > Normal
+
 **Session #2 - Logging, Static Sync, Enemy Aggro, Dash**:
 - Network diagnostics UI (F3 toggle)
 - Centralized logging system
 - Static wall resync (5s snapshots)
 - Enemy aggro (damage-based, 3s lock)
-- Dash mechanic (spacebar, 600 speed)
+- Dash mechanic (spacebar, 1000 speed)
 - Bug fix: Silent despawn for missing entities
 
 **Session #1 - Network Optimization & Hurt Flash**:
@@ -197,10 +212,9 @@ run_client_local.bat     # Single client → localhost
 - Hurt flash for enemies
 
 ## Known Issues
-- Dash uses `is_action_pressed` instead of `is_action_just_pressed` (sends spam while held)
+- None currently
 
 ## Next Session
-- Fix dash input (just_pressed)
-- Muzzle flash + shooting sound
-- Screen shake on damage
-- Health bar improvements
+- Weapon system (5 types, switching, ammo display)
+- Enemy variety (Scout, Tank, Sniper at minimum)
+- Polish pass (muzzle flash, shooting sound, screen shake)

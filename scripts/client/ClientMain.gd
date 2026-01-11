@@ -115,7 +115,7 @@ func _ready() -> void:
 	# END CONNECTION UI
 	
 	var title = Label.new()
-	title.text = "CLIENT - WASD=Move, Mouse=Aim, LMB=Shoot, RMB=Build, SPACE=Dash"
+	title.text = "CLIENT - WASD=Move, Mouse=Aim, LMB=Shoot, RMB=Build, SPACE=Dash, SHIFT=Sprint"
 	title.position = Vector2(10, 10)
 	add_child(title)
 	
@@ -248,6 +248,8 @@ func _send_and_predict(dt: float) -> void:
 		btn |= GameConstants.BTN_BUILD
 	if Input.is_action_pressed("ui_dash"):
 		btn |= GameConstants.BTN_DASH
+	if Input.is_key_pressed(KEY_SHIFT):
+		btn |= GameConstants.BTN_SPRINT
 	
 	_input_seq += 1
 	var cmd = {"seq": _input_seq, "mv": mv, "aim": aim, "btn": btn}
@@ -333,7 +335,7 @@ func _interpolate_entity(entity: NetworkedEntity, render_tick: int) -> void:
 	if sa.has("r") and sb.has("r"):
 		entity.rotation = lerp_angle(sa["r"], sb["r"], t)
 	
-	# Apply non-interpolated values (health, etc.) using apply_replicated_state
+	# Apply non-interpolated values (health, stamina, etc.) using apply_replicated_state
 	# This ensures hurt flash triggers correctly on health decrease
 	if sb.has("h") and "health" in entity:
 		var new_health = sb["h"]
@@ -345,6 +347,9 @@ func _interpolate_entity(entity: NetworkedEntity, render_tick: int) -> void:
 	
 	if sb.has("v") and "velocity" in entity:
 		entity.velocity = sb["v"]
+	
+	if sb.has("s") and "stamina" in entity:
+		entity.stamina = sb["s"]
 
 #Handle player spawn RPC from server.
 #Creates Player entity, marks as local if it's our player, initializes interpolation buffer.
@@ -426,13 +431,14 @@ func _on_snapshot(snap: Dictionary) -> void:
 		if net_id == _my_id:
 			_last_server_state = state
 			
-			# Apply non-predicted state immediately (health, etc.)
+			# Apply non-predicted state immediately (health, stamina, etc.)
 			var player = _players.get(_my_id)
 			if player:
 				var new_health = state.get("h", player.health)
 				if new_health < player.health:
 					player._hurt_flash_timer = 0.2  # Trigger flash on damage
 				player.health = new_health
+				player.stamina = state.get("s", player.stamina)
 			
 			continue
 		

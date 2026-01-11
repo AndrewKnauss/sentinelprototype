@@ -15,9 +15,12 @@ var _shoot_cooldown: float = 0.0
 var _dash_timer: float = 0.0  # Active dash time
 var _dash_cooldown: float = 0.0  # Time until next dash
 var _dash_direction: Vector2 = Vector2.ZERO  # Direction of current dash
+var stamina: float = GameConstants.PLAYER_STAMINA_MAX
+var is_sprinting: bool = false
 var _sprite: Sprite2D
 var _label: Label
 var _health_bar: ColorRect
+var _stamina_bar: ColorRect
 var _hurt_flash_timer: float = 0.0
 
 static var _shared_tex: Texture2D = null
@@ -53,6 +56,14 @@ func _ready() -> void:
 	_health_bar.position = Vector2(-10, -20)
 	_health_bar.color = Color.GREEN
 	add_child(_health_bar)
+	
+	# Stamina bar
+	_stamina_bar = ColorRect.new()
+	_stamina_bar.size = Vector2(20, 2)
+	_stamina_bar.position = Vector2(-10, -17)
+	_stamina_bar.color = Color.YELLOW
+	_stamina_bar.visible = false  # Hide when full
+	add_child(_stamina_bar)
 
 
 func _process(delta: float) -> void:
@@ -60,6 +71,7 @@ func _process(delta: float) -> void:
 	_dash_timer -= delta
 	_dash_cooldown -= delta
 	_update_health_bar()
+	_update_stamina_bar()
 	
 	# Hurt flash effect
 	if _hurt_flash_timer > 0.0:
@@ -82,9 +94,25 @@ func apply_input(mv: Vector2, aim: Vector2, buttons: int, dt: float) -> void:
 		_dash_cooldown = GameConstants.PLAYER_DASH_COOLDOWN
 		_dash_direction = mv.normalized()
 	
-	# Apply movement (dash overrides normal movement)
+	# Handle sprint
+	var wants_sprint = (buttons & GameConstants.BTN_SPRINT) and mv.length() > 0.1
+	
+	if wants_sprint and stamina > 0.0:
+		is_sprinting = true
+		stamina -= GameConstants.PLAYER_SPRINT_STAMINA_COST * dt
+		if stamina < 0.0:
+			stamina = 0.0
+	else:
+		is_sprinting = false
+		stamina += GameConstants.PLAYER_STAMINA_REGEN * dt
+		if stamina > GameConstants.PLAYER_STAMINA_MAX:
+			stamina = GameConstants.PLAYER_STAMINA_MAX
+	
+	# Apply movement (dash > sprint > normal)
 	if _dash_timer > 0.0:
 		velocity = _dash_direction * GameConstants.PLAYER_DASH_SPEED
+	elif is_sprinting:
+		velocity = mv * GameConstants.PLAYER_SPRINT_SPEED
 	else:
 		velocity = mv * GameConstants.PLAYER_MOVE_SPEED
 	
@@ -129,7 +157,8 @@ func get_replicated_state() -> Dictionary:
 		"p": global_position,
 		"r": rotation,
 		"h": health,
-		"v": velocity
+		"v": velocity,
+		"s": stamina
 	}
 
 
@@ -144,6 +173,7 @@ func apply_replicated_state(state: Dictionary) -> void:
 	health = new_health
 	
 	velocity = state.get("v", velocity)
+	stamina = state.get("s", stamina)
 
 
 func _update_health_bar() -> void:
@@ -155,6 +185,12 @@ func _update_health_bar() -> void:
 		_health_bar.color = Color.YELLOW
 	else:
 		_health_bar.color = Color.RED
+
+
+func _update_stamina_bar() -> void:
+	var pct = stamina / GameConstants.PLAYER_STAMINA_MAX
+	_stamina_bar.size.x = 20 * pct
+	_stamina_bar.visible = pct < 1.0  # Hide when full
 
 
 func _color_from_id(id: int) -> Color:

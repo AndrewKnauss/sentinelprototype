@@ -10,7 +10,7 @@
 
 ### Session 3: Core Fixes & Sprint
 - [x] Fix dash input (use just_pressed) - **DONE**
-- [ ] **Sprint system** (Shift key, stamina bar) - See `ENEMIES_AND_SPRINT.md`
+- [x] **Sprint system** (Shift key, stamina bar) - **DONE**
 - [ ] **Weapon system** (5 types, switching, ammo) - See `WEAPON_SYSTEM.md`
 - [ ] **Enemy variety** (Scout, Tank, Sniper, Swarm, Healer) - See `ENEMIES_AND_SPRINT.md`
 

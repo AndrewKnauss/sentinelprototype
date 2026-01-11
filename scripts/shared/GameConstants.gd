@@ -20,6 +20,12 @@ const PLAYER_DASH_SPEED: float = 1000.0  # Dash speed boost
 const PLAYER_DASH_DURATION: float = 0.15  # Seconds
 const PLAYER_DASH_COOLDOWN: float = 1.0  # Seconds between dashes
 
+# Sprint
+const PLAYER_SPRINT_SPEED: float = 330.0  # 1.5x base (220)
+const PLAYER_SPRINT_STAMINA_COST: float = 20.0  # Per second
+const PLAYER_STAMINA_MAX: float = 100.0
+const PLAYER_STAMINA_REGEN: float = 15.0  # Per second when not sprinting
+
 # Enemy
 const ENEMY_MOVE_SPEED: float = 80.0
 const ENEMY_MAX_HEALTH: float = 150.0
@@ -55,3 +61,4 @@ const SPAWN_MAX: Vector2 = Vector2(700, 500)
 const BTN_SHOOT: int = 1
 const BTN_BUILD: int = 2
 const BTN_DASH: int = 4
+const BTN_SPRINT: int = 8
