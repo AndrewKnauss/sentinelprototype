@@ -16,12 +16,14 @@ var _bullets: Array = []  # Array of Bullet
 var _last_input: Dictionary = {}  # peer_id -> cmd
 var _last_seq: Dictionary = {}  # peer_id -> int
 var _server_tick: int = 0
+var _static_snapshot_timer: float = 0.0
 
 const ENEMY_SPAWN_POSITIONS = [
 	Vector2(200, 200),
 	Vector2(600, 200),
 	Vector2(400, 400)
 ]
+const STATIC_SNAPSHOT_INTERVAL: float = 5.0
 
 
 func _ready() -> void:
@@ -103,6 +105,12 @@ func _physics_process(_delta: float) -> void:
 				"ack_seq": _last_seq.get(peer_id, 0)
 			}
 			Net.client_receive_ack.rpc_id(peer_id, ack)
+	
+	# 5. Send static snapshot periodically
+	_static_snapshot_timer += dt
+	if _static_snapshot_timer >= STATIC_SNAPSHOT_INTERVAL:
+		_static_snapshot_timer = 0.0
+		_send_static_snapshot()
 
 
 func _cleanup_bullets() -> void:
@@ -188,13 +196,14 @@ func _try_build_wall(player: Player, aim_dir: Vector2) -> void:
 	_world.add_child(wall)
 	_walls.append(wall)
 	
-	# Tell clients
-	Net.spawn_entity.rpc({
-		"type": "wall",
-		"net_id": wall.net_id,
-		"pos": wall_pos,
-		"extra": {"builder": player.net_id}
-	})
+	# Tell clients (RELIABLE for walls)
+	for peer_id in Net.get_peers():
+		Net.spawn_entity.rpc_id(peer_id, {
+			"type": "wall",
+			"net_id": wall.net_id,
+			"pos": wall_pos,
+			"extra": {"builder": player.net_id}
+		})
 
 
 func _despawn_wall(wall: Wall) -> void:
@@ -288,3 +297,22 @@ func _respawn_player(player: Player) -> void:
 		randf_range(GameConstants.SPAWN_MIN.y, GameConstants.SPAWN_MAX.y)
 	)
 	player.respawn(spawn_pos)
+
+
+func _send_static_snapshot() -> void:
+	"""Send reliable snapshot of all static entities (walls) for resync."""
+	if Net.get_peers().is_empty():
+		return
+	
+	var static_states = {}
+	for wall in _walls:
+		if is_instance_valid(wall):
+			static_states[str(wall.net_id)] = {
+				"type": "wall",
+				"pos": wall.global_position,
+				"health": wall.health,
+				"builder": wall.builder_id
+			}
+	
+	Net.client_receive_static_snapshot.rpc(static_states)
+	print("SERVER: Sent static snapshot with ", static_states.size(), " walls")

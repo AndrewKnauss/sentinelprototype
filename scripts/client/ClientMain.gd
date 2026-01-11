@@ -133,6 +133,7 @@ func _ready() -> void:
 	Net.despawn_received.connect(_on_despawn_player)
 	Net.snapshot_received.connect(_on_snapshot)
 	Net.ack_received.connect(_on_ack)
+	Net.static_snapshot_received.connect(_on_static_snapshot)
 
 # Main client tick: Predict local player, interpolate remote entities
 func _physics_process(_delta: float) -> void:
@@ -193,8 +194,10 @@ func _update_debug_overlay(delta: float) -> void:
 	# Calculate packet loss (snapshots)
 	var expected_snapshots = int((Time.get_ticks_msec() - _last_snapshot_time) / (1000.0 / GameConstants.PHYSICS_FPS))
 	var snapshot_loss = 0.0
+	var snapshot_recv = 100.0
 	if expected_snapshots > 0:
-		snapshot_loss = float(_snapshot_count) / float(expected_snapshots) * 100.0
+		snapshot_recv = clamp(float(_snapshot_count) / float(expected_snapshots) * 100.0, 0.0, 100.0)
+		snapshot_loss = 100.0 - snapshot_recv
 		
 	# Entity counts
 	var interp_count = 0
@@ -203,22 +206,22 @@ func _update_debug_overlay(delta: float) -> void:
 		if entity and not (entity is Bullet or entity is Wall):
 			interp_count += 1
 	
+	# Build debug text
+	var text = ""
+	text += "FPS: %d\n" % int(avg_fps)
+	text += "Tick: %d ms\n" % int(avg_sps)
+	text += "Ping: %d ms\n" % int(_ping_ms)
+	text += "Snapshots: %d/%d (%.1f%% loss)\n" % [_snapshot_count, expected_snapshots, snapshot_loss]
+	text += "Reconciles/sec: %d\n" % _reconcile_count
+	text += "Entities: %d (Total) %d (Interp)\n" % [Replication._entities.size(), interp_count]
+	text += "Pending Inputs: %d\n" % _pending_inputs.size()
+	text += "Buffer Size: %d ticks" % (_snap_buffers.get(_my_id, []).size() if _my_id > 0 else 0)
+	
+	_debug_label.text = text
+	
 	# Reset per-second counters
 	var now = Time.get_ticks_msec()
-	if now - _last_snapshot_time >= 1000:	
-		var text = ""
-		text += "FPS: %d\n" % int(avg_fps)
-		text += "Tick: %d msec\n" % int(avg_sps)
-		text += "dt Ack: %d ms\n" % int(_ping_ms)
-		text += "# Snapshots: %d | %d \n" % [_snapshot_count, expected_snapshots]
-		text += "Perc. Snapshots: %d \n" % snapshot_loss
-		text += "Reconciles/sec: %d\n" % _reconcile_count
-		text += "Entities: %d (Total) %d (Interp)\n" % [Replication._entities.size(), interp_count]
-		text += "Pending Inputs: %d\n" % _pending_inputs.size()
-		text += "Buffer Size: %d ticks" % (_snap_buffers.get(_my_id, []).size() if _my_id > 0 else 0)
-		
-		_debug_label.text = text
-		
+	if now - _last_snapshot_time >= 1000:
 		_snapshot_count = 0
 		_reconcile_count = 0
 		_last_snapshot_time = now
@@ -529,3 +532,30 @@ func _spawn_predicted_bullet(pos: Vector2, dir: Vector2) -> void:
 	bullet.initialize(pos, dir.normalized(), _my_id)
 	_world.add_child(bullet)
 	print("CLIENT: Spawned predicted bullet at ", pos)
+
+
+#Handle static snapshot - resync all walls every 5 seconds.
+#Spawns missing walls and updates health on existing ones.
+#Catches any desync from dropped packets or late joins.
+func _on_static_snapshot(states: Dictionary) -> void:
+	print("CLIENT: Received static snapshot with ", states.size(), " walls")
+	
+	for net_id_str in states:
+		var net_id = int(net_id_str)
+		var state = states[net_id_str]
+		
+		var wall = Replication.get_entity(net_id)
+		if not wall:
+			# Missing wall - spawn it
+			print("CLIENT: Spawning missing wall ", net_id, " from static snapshot")
+			wall = Wall.new()
+			wall.net_id = net_id
+			wall.authority = 1
+			wall.global_position = state["pos"]
+			wall.health = state["health"]
+			wall.builder_id = state.get("builder", 0)
+			_world.add_child(wall)
+		else:
+			# Update existing wall health
+			if wall is Wall:
+				wall.health = state["health"]

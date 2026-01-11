@@ -19,6 +19,7 @@ signal spawn_received(payload: Dictionary)
 signal despawn_received(peer_id: int)
 signal snapshot_received(snap: Dictionary)
 signal ack_received(ack: Dictionary)
+signal static_snapshot_received(states: Dictionary)
 
 var _sm: SceneMultiplayer = null
 
@@ -149,6 +150,13 @@ func client_receive_ack(ack: Dictionary) -> void:
 	if is_server():
 		return
 	ack_received.emit(ack)
+
+
+@rpc("any_peer", "reliable")
+func client_receive_static_snapshot(states: Dictionary) -> void:
+	if is_server():
+		return
+	static_snapshot_received.emit(states)
 
 
 # NEW: Entity spawning/despawning
