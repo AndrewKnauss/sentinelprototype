@@ -63,6 +63,10 @@ var _ack_count: int = 0
 var _reconcile_count: int = 0
 var _last_ping_send: float = 0.0
 var _ping_ms: float = 0.0
+var _sps_samples: Array = []
+var _sps_latest_ms: float = 0.0
+var _last_time_snapshot: float = 0.0
+var _time_last_snap_ms: float = 0.0
 var _fps_samples: Array = []
 
 # Initialize client, setup UI, and connect to network events.
@@ -171,6 +175,21 @@ func _update_debug_overlay(delta: float) -> void:
 		avg_fps += fps
 	avg_fps /= _fps_samples.size()
 	
+	# Track SPS
+	_sps_samples.append(_sps_latest_ms)
+	if _sps_samples.size() > 60:
+		_sps_samples.pop_front()
+	
+	var avg_sps = 0.0
+	for sps in _sps_samples:
+		avg_sps += sps
+		
+	var num_sps_samp = _sps_samples.size()
+	if num_sps_samp == 0:
+		avg_sps = 1000
+	else:
+		avg_sps /= num_sps_samp
+	
 	# Calculate packet loss (snapshots)
 	var expected_snapshots = int((Time.get_ticks_msec() - _last_snapshot_time) / (1000.0 / GameConstants.PHYSICS_FPS))
 	var snapshot_loss = 0.0
@@ -189,7 +208,8 @@ func _update_debug_overlay(delta: float) -> void:
 	if now - _last_snapshot_time >= 1000:	
 		var text = ""
 		text += "FPS: %d\n" % int(avg_fps)
-		text += "dt Snapshot: %d ms\n" % int(_ping_ms)
+		text += "Tick: %d msec\n" % int(avg_sps)
+		text += "dt Ack: %d ms\n" % int(_ping_ms)
 		text += "# Snapshots: %d | %d \n" % [_snapshot_count, expected_snapshots]
 		text += "Perc. Snapshots: %d \n" % snapshot_loss
 		text += "Reconciles/sec: %d\n" % _reconcile_count
@@ -377,10 +397,10 @@ func _on_despawn_player(peer_id: int) -> void:
 func _on_snapshot(snap: Dictionary) -> void:
 	_snapshot_count += 1
 	
-	# Measure ping
-	if _last_ping_send > 0:
-		_ping_ms = Time.get_ticks_msec() - _last_ping_send
-		_last_ping_send = 0
+	# Measure dt snap
+	var time_now = Time.get_ticks_msec()
+	_sps_latest_ms = time_now - _last_time_snapshot
+	_last_time_snapshot = time_now
 	
 	_latest_tick = snap.get("tick", _latest_tick)
 	var states = snap.get("states", {})
@@ -442,6 +462,12 @@ func _on_snapshot(snap: Dictionary) -> void:
 #Note: Health is NOT reconciled here - it's applied immediately in _on_snapshot.
 func _on_ack(ack: Dictionary) -> void:
 	_ack_count += 1
+		
+	# Measure ping
+	if _last_ping_send > 0:
+		_ping_ms = Time.get_ticks_msec() - _last_ping_send
+		_last_ping_send = 0
+	
 		
 	var ack_seq = ack.get("ack_seq", 0)
 	if ack_seq <= 0 or _last_server_state.is_empty() or not _players.has(_my_id):
