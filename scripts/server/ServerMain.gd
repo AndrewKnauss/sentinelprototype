@@ -233,6 +233,9 @@ func _respawn_enemy(enemy: Enemy, enemy_type: String) -> void:
 	enemy.queue_free()
 	_enemies.erase(enemy)
 	
+	if _enemies.size() > 5:
+		return
+		
 	# Respawn after delay (keep same type)
 	await get_tree().create_timer(GameConstants.ENEMY_RESPAWN_TIME).timeout
 	var spawn_pos = ENEMY_SPAWN_POSITIONS[randi() % ENEMY_SPAWN_POSITIONS.size()]
