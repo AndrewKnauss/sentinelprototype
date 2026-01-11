@@ -213,7 +213,7 @@ func _despawn_wall(wall: Wall) -> void:
 
 
 func _on_peer_connected(peer_id: int) -> void:
-	print("Server: peer connected: ", peer_id)
+	Log.network("Peer connected: %d" % peer_id)
 	
 	var spawn_pos = Vector2(
 		randf_range(GameConstants.SPAWN_MIN.x, GameConstants.SPAWN_MAX.x),
@@ -265,7 +265,7 @@ func _on_peer_connected(peer_id: int) -> void:
 
 
 func _on_peer_disconnected(peer_id: int) -> void:
-	print("Server: peer disconnected: ", peer_id)
+	Log.network("Peer disconnected: %d" % peer_id)
 	
 	if _players.has(peer_id):
 		_players[peer_id].queue_free()
@@ -315,4 +315,4 @@ func _send_static_snapshot() -> void:
 			}
 	
 	Net.client_receive_static_snapshot.rpc(static_states)
-	print("SERVER: Sent static snapshot with ", static_states.size(), " walls")
+	Log.network("Sent static snapshot with %d walls" % static_states.size())

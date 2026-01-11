@@ -55,16 +55,16 @@ func start_server(port: int, max_clients: int = 64) -> void:
 		peer = WebSocketMultiplayerPeer.new()
 		var err = peer.create_server(port)
 		if err != OK:
-			push_error("Net.start_server (WebSocket) failed: %s" % err)
+			Log.error("WebSocket server failed: %s" % err)
 			return
-		print("Net: WebSocket server listening on port ", port)
+		Log.network("WebSocket server listening on port %d" % port)
 	else:
 		peer = ENetMultiplayerPeer.new()
 		var err = peer.create_server(port, max_clients)
 		if err != OK:
-			push_error("Net.start_server (ENet) failed: %s" % err)
+			Log.error("ENet server failed: %s" % err)
 			return
-		print("Net: ENet server listening on port ", port)
+		Log.network("ENet server listening on port %d" % port)
 	
 	_sm.multiplayer_peer = peer
 	_sm.peer_connected.connect(func(id): peer_connected.emit(id))
@@ -83,31 +83,31 @@ func connect_client(host: String, port: int) -> void:
 		var url = protocol + host + ":" + str(port)
 		var err = peer.create_client(url)
 		if err != OK:
-			push_error("Net.connect_client (WebSocket) failed: %s" % err)
+			Log.error("WebSocket client failed: %s" % err)
 			client_connection_failed.emit()
 			return
-		print("Net: WebSocket client connecting to ", url)
+		Log.network("WebSocket client connecting to %s" % url)
 	else:
 		peer = ENetMultiplayerPeer.new()
 		var err = peer.create_client(host, port)
 		if err != OK:
-			push_error("Net.connect_client (ENet) failed: %s" % err)
+			Log.error("ENet client failed: %s" % err)
 			client_connection_failed.emit()
 			return
-		print("Net: ENet client connecting to %s:%d" % [host, port])
+		Log.network("ENet client connecting to %s:%d" % [host, port])
 	
 	_sm.multiplayer_peer = peer
 	
 	_sm.connected_to_server.connect(func():
-		print("Net: Connected. My peer id: ", _sm.get_unique_id())
+		Log.network("Connected. My peer id: %d" % _sm.get_unique_id())
 		client_connected.emit(_sm.get_unique_id())
 	)
 	_sm.connection_failed.connect(func():
-		print("Net: Connection failed.")
+		Log.warn("Connection failed")
 		client_connection_failed.emit()
 	)
 	_sm.server_disconnected.connect(func():
-		print("Net: Server disconnected.")
+		Log.network("Server disconnected")
 		client_disconnected.emit()
 	)
 
@@ -165,7 +165,7 @@ func spawn_entity(data: Dictionary) -> void:
 	if is_server():
 		return
 	
-	print("CLIENT Net: Received spawn_entity: ", data)
+	Log.entity("Received spawn_entity: %s" % data)
 	
 	var type = data.get("type", "")
 	var net_id = data.get("net_id", 0)
@@ -179,7 +179,7 @@ func spawn_entity(data: Dictionary) -> void:
 			# SKIP bullets fired by local player (already predicted)
 			var owner_id = extra.get("owner", 0)
 			if owner_id == get_unique_id():
-				print("CLIENT Net: Skipping own bullet (already predicted)")
+				Log.entity("Skipping own bullet (already predicted)")
 				return
 			
 			entity = Bullet.new()
@@ -196,18 +196,18 @@ func spawn_entity(data: Dictionary) -> void:
 		entity.net_id = net_id
 		entity.authority = 1
 		get_tree().root.add_child(entity)
-		print("CLIENT Net: Spawned ", type, " with net_id ", net_id, " at ", pos)
+		Log.entity("Spawned %s with net_id %d at %v" % [type, net_id, pos])
 	else:
-		print("CLIENT Net: ERROR - Failed to create entity type: ", type)
+		Log.error("Failed to create entity type: %s" % type)
 
 
 @rpc("any_peer", "reliable")
 func despawn_entity(net_id: int) -> void:
 	if is_server():
 		return
-	print("CLIENT Net: Despawning entity ", net_id)
+	Log.entity("Despawning entity %d" % net_id)
 	var entity = Replication.get_entity(net_id)
 	if entity:
 		entity.queue_free()
 	else:
-		print("CLIENT Net: WARNING - Entity ", net_id, " not found in Replication")
+		Log.warn("Entity %d not found in Replication" % net_id)

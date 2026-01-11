@@ -68,6 +68,8 @@ var _sps_latest_ms: float = 0.0
 var _last_time_snapshot: float = 0.0
 var _time_last_snap_ms: float = 0.0
 var _fps_samples: Array = []
+var _ticks_since_input: int = 0  # Track ticks since last active input
+var _last_aim: Vector2 = Vector2.ZERO  # Track aim changes
 
 # Initialize client, setup UI, and connect to network events.
 func _ready() -> void:
@@ -127,7 +129,7 @@ func _ready() -> void:
 	
 	Net.client_connected.connect(func(id): 
 		_my_id = id
-		print("CLIENT: My ID is ", id)
+		Log.network("My ID is %d" % id)
 	)
 	Net.spawn_received.connect(_on_spawn_player)
 	Net.despawn_received.connect(_on_despawn_player)
@@ -248,24 +250,45 @@ func _send_and_predict(dt: float) -> void:
 	_input_seq += 1
 	var cmd = {"seq": _input_seq, "mv": mv, "aim": aim, "btn": btn}
 	
-	# Send to server (measure ping on every 10th input)
-	if _input_seq % 10 == 0:
-		_last_ping_send = Time.get_ticks_msec()
-	Net.server_receive_input.rpc_id(1, cmd)
+	# Detect active input (movement, buttons, OR aim change)
+	var has_movement = mv.length_squared() > 0.01
+	var has_buttons = btn != 0
+	var aim_changed = aim.distance_to(_last_aim) > 0.01  # ~0.5 degree threshold
+	var has_input = has_movement or has_buttons or aim_changed
+		
+	# Send if:
+	# 1. Active input (move, button, or aim change)
+	# 2. Within 3 ticks after input stopped (confirm stop to server)
+	# 3. Once per second keepalive (for ACK flow)
+	if has_input:
+		_ticks_since_input = 0
+		
+		_last_aim = aim # Update last aim
+	else:
+		_ticks_since_input += 1
+	
+	var should_send = has_input or _ticks_since_input <= 3 or (_input_seq % GameConstants.PHYSICS_FPS == 0)
+	
+	if should_send:
+		# Measure ping on every 10th sent input
+		if _input_seq % 10 == 0:
+			_last_ping_send = Time.get_ticks_msec()
+		Net.server_receive_input.rpc_id(1, cmd)
 	
 	# CLIENT-SIDE PREDICTION: Spawn bullet immediately for instant feedback
 	if btn & GameConstants.BTN_SHOOT and player.shoot():
 		_spawn_predicted_bullet(player.global_position, aim)
 	
-	# Predict locally
+	# Predict locally (always, even if not sent to server)
 	player.apply_input(mv, aim, btn, dt)
 	
-	# Store for reconciliation
-	_pending_inputs.append(cmd)
-	_predicted_states[_input_seq] = player.get_replicated_state()
-	
-	if _pending_inputs.size() > 256:
-		_pending_inputs.pop_front()
+	# Store for reconciliation (only if sent to server)
+	if should_send:
+		_pending_inputs.append(cmd)
+		_predicted_states[_input_seq] = player.get_replicated_state()
+		
+		if _pending_inputs.size() > 256:
+			_pending_inputs.pop_front()
 
 #Interpolate all non-local entities (remote players, enemies) between buffered snapshots.
 #Renders entities 2 ticks behind to ensure smooth interpolation even with jitter.
@@ -349,7 +372,7 @@ func _on_spawn_player(payload: Dictionary) -> void:
 
 	var peer_id = payload["peer_id"]
 	
-	print("CLIENT: Received spawn for player ", peer_id)
+	Log.entity("Received spawn for player %d" % peer_id)
 	
 	if _my_id == 0:
 		_my_id = Net.get_unique_id()
@@ -372,7 +395,7 @@ func _on_spawn_player(payload: Dictionary) -> void:
 	_players[peer_id] = player
 	player.apply_replicated_state(payload["state"])
 	
-	print("CLIENT: Spawned player ", peer_id, " at ", player.global_position)
+	Log.entity("Spawned player %d at %v" % [peer_id, player.global_position])
 	
 	if not _snap_buffers.has(peer_id):
 		_snap_buffers[peer_id] = []
@@ -380,7 +403,7 @@ func _on_spawn_player(payload: Dictionary) -> void:
 #Handle player disconnect - remove entity and clean up buffers.
 
 func _on_despawn_player(peer_id: int) -> void:
-	print("CLIENT: Despawning player ", peer_id)
+	Log.entity("Despawning player %d" % peer_id)
 	if _players.has(peer_id):
 		_players[peer_id].queue_free()
 		_players.erase(peer_id)
@@ -410,8 +433,8 @@ func _on_snapshot(snap: Dictionary) -> void:
 	
 	# DEBUG: Print snapshot contents occasionally
 	if _latest_tick % 120 == 0:
-		print("CLIENT: Snapshot tick ", _latest_tick, " contains entities: ", states.keys())
-		print("CLIENT: Registered entities: ", Replication._entities.keys())
+		Log.snapshot("Snapshot tick %d contains entities: %s" % [_latest_tick, states.keys()])
+		Log.snapshot("Registered entities: %s" % [Replication._entities.keys()])
 	
 	# Process all entities in snapshot (players, enemies, walls, NOT bullets)
 	for net_id_str in states:
@@ -531,14 +554,14 @@ func _spawn_predicted_bullet(pos: Vector2, dir: Vector2) -> void:
 	bullet.authority = _my_id
 	bullet.initialize(pos, dir.normalized(), _my_id)
 	_world.add_child(bullet)
-	print("CLIENT: Spawned predicted bullet at ", pos)
+	Log.entity("Spawned predicted bullet at %v" % pos)
 
 
 #Handle static snapshot - resync all walls every 5 seconds.
 #Spawns missing walls and updates health on existing ones.
 #Catches any desync from dropped packets or late joins.
 func _on_static_snapshot(states: Dictionary) -> void:
-	print("CLIENT: Received static snapshot with ", states.size(), " walls")
+	Log.network("Received static snapshot with %d walls" % states.size())
 	
 	for net_id_str in states:
 		var net_id = int(net_id_str)
@@ -547,7 +570,7 @@ func _on_static_snapshot(states: Dictionary) -> void:
 		var wall = Replication.get_entity(net_id)
 		if not wall:
 			# Missing wall - spawn it
-			print("CLIENT: Spawning missing wall ", net_id, " from static snapshot")
+			Log.entity("Spawning missing wall %d from static snapshot" % net_id)
 			wall = Wall.new()
 			wall.net_id = net_id
 			wall.authority = 1

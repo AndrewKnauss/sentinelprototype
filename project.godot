@@ -17,6 +17,7 @@ config/icon="res://icon.svg"
 
 [autoload]
 
+Log="*res://scripts/systems/Log.gd"
 Net="*res://scripts/net/Net.gd"
 Replication="*res://scripts/shared/ReplicationManager.gd"
 
