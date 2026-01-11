@@ -145,8 +145,14 @@ func spawn_entity(data: Dictionary) -> void:
 	
 	match type:
 		"bullet":
+			# SKIP bullets fired by local player (already predicted)
+			var owner_id = extra.get("owner", 0)
+			if owner_id == get_unique_id():
+				print("CLIENT Net: Skipping own bullet (already predicted)")
+				return
+			
 			entity = Bullet.new()
-			entity.initialize(pos, extra.get("dir", Vector2.RIGHT), extra.get("owner", 0))
+			entity.initialize(pos, extra.get("dir", Vector2.RIGHT), owner_id)
 		"enemy":
 			entity = Enemy.new()
 			entity.global_position = pos

@@ -225,12 +225,12 @@ func _try_build_wall(player: Player, aim_dir: Vector2) -> void:
 	var wall_pos = player.global_position + aim_dir.normalized() * GameConstants.WALL_BUILD_RANGE
 	
 	# Snap to grid
-	wall_pos.x = floor(wall_pos.x / 64) * 64 + 32
-	wall_pos.y = floor(wall_pos.y / 64) * 64 + 32
+	wall_pos.x = floor(wall_pos.x / GameConstants.WALL_SIZE_SIDE) * GameConstants.WALL_SIZE_SIDE + (GameConstants.WALL_SIZE_SIDE / 2.0)
+	wall_pos.y = floor(wall_pos.y / GameConstants.WALL_SIZE_SIDE) * GameConstants.WALL_SIZE_SIDE + (GameConstants.WALL_SIZE_SIDE / 2.0)
 	
 	# Check if space is clear
 	for wall in _walls:
-		if wall.global_position.distance_to(wall_pos) < 32:
+		if wall.global_position.distance_to(wall_pos) < (GameConstants.WALL_SIZE_SIDE/2):
 			return  # Too close to existing wall
 	
 	var wall = Wall.new()

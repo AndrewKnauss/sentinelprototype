@@ -79,6 +79,10 @@ func _send_and_predict(dt: float) -> void:
 	# Send to server
 	Net.server_receive_input.rpc_id(1, cmd)
 	
+	# CLIENT-SIDE PREDICTION: Spawn bullet immediately for instant feedback
+	if btn & GameConstants.BTN_SHOOT and player.shoot():
+		_spawn_predicted_bullet(player.global_position, aim)
+	
 	# Predict locally
 	player.apply_input(mv, aim, btn, dt)
 	
@@ -96,7 +100,7 @@ func _interpolate_all_entities() -> void:
 	if render_tick <= 0:
 		return
 	
-	# Interpolate all entities with snapshot buffers
+	# Interpolate all entities with snapshot buffers (EXCEPT bullets)
 	for net_id in _snap_buffers:
 		var entity = Replication.get_entity(net_id)
 		if not entity or not is_instance_valid(entity):
@@ -104,6 +108,10 @@ func _interpolate_all_entities() -> void:
 		
 		# Skip local player (we predict it)
 		if entity is Player and entity.net_id == _my_id:
+			continue
+		
+		# Skip bullets (they use pure client-side prediction)
+		if entity is Bullet:
 			continue
 		
 		_interpolate_entity(entity, render_tick)
@@ -195,7 +203,7 @@ func _on_snapshot(snap: Dictionary) -> void:
 		print("CLIENT: Snapshot tick ", _latest_tick, " contains entities: ", states.keys())
 		print("CLIENT: Registered entities: ", Replication._entities.keys())
 	
-	# Process all entities in snapshot (players, enemies, walls, bullets)
+	# Process all entities in snapshot (players, enemies, walls, NOT bullets)
 	for net_id_str in states:
 		var net_id = int(net_id_str)
 		var state = states[net_id_str]
@@ -203,6 +211,11 @@ func _on_snapshot(snap: Dictionary) -> void:
 		# Special handling for local player (store for reconciliation)
 		if net_id == _my_id:
 			_last_server_state = state
+			continue
+		
+		# Skip bullets - they're purely client-side predicted
+		var entity = Replication.get_entity(net_id)
+		if entity and entity is Bullet:
 			continue
 		
 		# All other entities: add to interpolation buffer
@@ -261,3 +274,13 @@ func _drop_confirmed(ack_seq: int) -> void:
 	for seq in _predicted_states.keys():
 		if int(seq) <= ack_seq:
 			_predicted_states.erase(seq)
+
+
+func _spawn_predicted_bullet(pos: Vector2, dir: Vector2) -> void:
+	"""Spawn bullet immediately for client-side prediction."""
+	var bullet = Bullet.new()
+	bullet.net_id = -1  # Temporary ID for predicted bullets
+	bullet.authority = _my_id
+	bullet.initialize(pos, dir.normalized(), _my_id)
+	_world.add_child(bullet)
+	print("CLIENT: Spawned predicted bullet at ", pos)
