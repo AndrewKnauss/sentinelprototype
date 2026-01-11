@@ -10,6 +10,7 @@ class_name ClientMain
 var _world: Node2D
 var _players: Dictionary = {}  # peer_id -> Player
 var _my_id: int = 0
+var _camera: Camera2D
 
 # Prediction
 var _input_seq: int = 0
@@ -26,6 +27,13 @@ func _ready() -> void:
 	_world = Node2D.new()
 	_world.name = "World"
 	add_child(_world)
+	
+	# Create camera
+	_camera = Camera2D.new()
+	_camera.enabled = true
+	_camera.position_smoothing_enabled = true
+	_camera.position_smoothing_speed = 5.0
+	_world.add_child(_camera)
 	
 	var title = Label.new()
 	title.text = "CLIENT - WASD=Move, Mouse=Aim, LMB=Shoot, RMB=Build"
@@ -47,6 +55,11 @@ func _physics_process(_delta: float) -> void:
 		return
 	
 	var dt = GameConstants.FIXED_DELTA
+	
+	# Update camera to follow local player
+	if _players.has(_my_id):
+		var player = _players[_my_id]
+		_camera.global_position = player.global_position
 	
 	# Local prediction
 	if _players.has(_my_id):
