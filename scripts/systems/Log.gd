@@ -23,14 +23,14 @@ enum Category {
 # Global enable/disable per category
 var _enabled: Dictionary = {
 	Category.NETWORK: false,
-	Category.ENTITY: false,
+	Category.ENTITY: true,
 	Category.SNAPSHOT: false,  # Very spammy
 	Category.INPUT: false,     # Very spammy
-	Category.RECONCILE: true,
+	Category.RECONCILE: false,
 	Category.PHYSICS: false,
-	Category.DEBUG: true,
-	Category.WARNING: true,
-	Category.ERROR: true,
+	Category.DEBUG: false,
+	Category.WARNING: false,
+	Category.ERROR: false,
 }
 
 # Category prefixes for readability

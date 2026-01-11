@@ -21,7 +21,9 @@ var _static_snapshot_timer: float = 0.0
 const ENEMY_SPAWN_POSITIONS = [
 	Vector2(200, 200),
 	Vector2(600, 200),
-	Vector2(400, 400)
+	Vector2(400, 400),
+	Vector2(400, 450),
+	Vector2(500, 500)
 ]
 const STATIC_SNAPSHOT_INTERVAL: float = 5.0
 
@@ -158,13 +160,45 @@ func _spawn_bullet(pos: Vector2, dir: Vector2, owner: int, dmg: float = GameCons
 	})
 
 
-func _spawn_enemy(pos: Vector2) -> void:
-	var enemy = Enemy.new()
+func _spawn_enemy(pos: Vector2, enemy_type: String = "") -> void:
+	# Random type if not specified
+	#if enemy_type.is_empty():
+		
+	var types = ["scout", "tank", "sniper", "swarm", "normal"]
+	var weights = [0.25, 0.15, 0.50, 0.25, 0.2]  # Scout/Swarm more common
+	enemy_type = _weighted_random(types, weights)
+	
+	var enemy: Enemy
+	match enemy_type:
+		"scout":
+			enemy = EnemyScout.new()
+		"tank":
+			enemy = EnemyTank.new()
+		"sniper":
+			enemy = EnemySniper.new()
+		"swarm":
+			enemy = EnemySwarm.new()
+		_:
+			enemy = Enemy.new()
+			enemy_type = "normal"
+	
 	enemy.net_id = Replication.generate_id()
 	enemy.authority = 1
 	enemy.global_position = pos
-	enemy.died.connect(func(_id): _respawn_enemy(enemy))
-	enemy.wants_to_shoot.connect(func(dir): _spawn_bullet(enemy.global_position, dir, 0, GameConstants.BULLET_DAMAGE))
+	enemy.died.connect(func(_id): _respawn_enemy(enemy, enemy_type))
+	
+	# Different damage for different types
+	var damage = GameConstants.BULLET_DAMAGE
+	if enemy is EnemyScout:
+		damage = 15.0
+	elif enemy is EnemyTank:
+		damage = 35.0
+	elif enemy is EnemySniper:
+		damage = 60.0
+	elif enemy is EnemySwarm:
+		damage = 10.0
+	
+	enemy.wants_to_shoot.connect(func(dir): _spawn_bullet(enemy.global_position, dir, 0, damage))
 	_world.add_child(enemy)
 	_enemies.append(enemy)
 	
@@ -173,20 +207,36 @@ func _spawn_enemy(pos: Vector2) -> void:
 		"type": "enemy",
 		"net_id": enemy.net_id,
 		"pos": pos,
-		"extra": {}
+		"extra": {"enemy_type": enemy_type}
 	})
 
 
-func _respawn_enemy(enemy: Enemy) -> void:
+func _weighted_random(options: Array, weights: Array) -> String:
+	var total = 0.0
+	for w in weights:
+		total += w
+	
+	var roll = randf() * total
+	var cumulative = 0.0
+	
+	for i in range(options.size()):
+		cumulative += weights[i]
+		if roll < cumulative:
+			return options[i]
+	
+	return options[0]
+
+
+func _respawn_enemy(enemy: Enemy, enemy_type: String) -> void:
 	# Despawn
 	Net.despawn_entity.rpc(enemy.net_id)
 	enemy.queue_free()
 	_enemies.erase(enemy)
 	
-	# Respawn after delay
+	# Respawn after delay (keep same type)
 	await get_tree().create_timer(GameConstants.ENEMY_RESPAWN_TIME).timeout
 	var spawn_pos = ENEMY_SPAWN_POSITIONS[randi() % ENEMY_SPAWN_POSITIONS.size()]
-	_spawn_enemy(spawn_pos)
+	_spawn_enemy(spawn_pos, enemy_type)
 
 
 func _try_build_wall(player: Player, aim_dir: Vector2) -> void:
@@ -254,11 +304,21 @@ func _on_peer_connected(peer_id: int) -> void:
 	
 	for enemy in _enemies:
 		if is_instance_valid(enemy):
+			var etype = "normal"
+			if enemy is EnemyScout:
+				etype = "scout"
+			elif enemy is EnemyTank:
+				etype = "tank"
+			elif enemy is EnemySniper:
+				etype = "sniper"
+			elif enemy is EnemySwarm:
+				etype = "swarm"
+			
 			Net.spawn_entity.rpc_id(peer_id, {
 				"type": "enemy",
 				"net_id": enemy.net_id,
 				"pos": enemy.global_position,
-				"extra": {}
+				"extra": {"enemy_type": etype}
 			})
 	
 	for wall in _walls:

@@ -165,7 +165,7 @@ func spawn_entity(data: Dictionary) -> void:
 	if is_server():
 		return
 	
-	Log.entity("Received spawn_entity: %s" % data)
+	#Log.entity("Received spawn_entity: %s" % data)
 	
 	var type = data.get("type", "")
 	var net_id = data.get("net_id", 0)
@@ -185,7 +185,18 @@ func spawn_entity(data: Dictionary) -> void:
 			entity = Bullet.new()
 			entity.initialize(pos, extra.get("dir", Vector2.RIGHT), owner_id)
 		"enemy":
-			entity = Enemy.new()
+			var enemy_type = extra.get("enemy_type", "normal")
+			match enemy_type:
+				"scout":
+					entity = EnemyScout.new()
+				"tank":
+					entity = EnemyTank.new()
+				"sniper":
+					entity = EnemySniper.new()
+				"swarm":
+					entity = EnemySwarm.new()
+				_:
+					entity = Enemy.new()
 			entity.global_position = pos
 		"wall":
 			entity = Wall.new()
@@ -196,7 +207,7 @@ func spawn_entity(data: Dictionary) -> void:
 		entity.net_id = net_id
 		entity.authority = 1
 		get_tree().root.add_child(entity)
-		Log.entity("Spawned %s with net_id %d at %v" % [type, net_id, pos])
+		#Log.entity("Spawned %s with net_id %d at %v" % [type, net_id, pos])
 	else:
 		Log.error("Failed to create entity type: %s" % type)
 

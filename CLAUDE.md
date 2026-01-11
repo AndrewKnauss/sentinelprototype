@@ -194,7 +194,7 @@ run_client_local.bat     # Single client → localhost
 
 ## Recent Changes
 
-**Session #3 - Sprint & Weapon System**:
+**Session #3 - Sprint, Weapons & Enemy Variety**:
 - Sprint mechanic (Shift key, 330 speed = 1.5x base)
 - Stamina system (100 max, drains 20/sec, regens 15/sec)
 - Stamina bar UI (yellow, below health, hides when full)
@@ -206,6 +206,15 @@ run_client_local.bat     # Single client → localhost
 - Ammo HUD display (bottom-right)
 - Network sync for weapon state
 - Players start with Pistol/Rifle/Shotgun for testing
+- **Enemy variety** (5 types: Scout, Tank, Sniper, Swarm, Normal)
+  - Scout: Fast, fragile, kites at range (140 speed, 80 hp, 15 dmg)
+  - Tank: Slow, armored, charges (50 speed, 400 hp, 35 dmg, 60% armor)
+  - Sniper: Long range with laser warning (700 range, 60 dmg, 1.5s aim time)
+  - Swarm: Fast, weak, aggressive (120 speed, 50 hp, 10 dmg)
+  - Normal: Balanced baseline (80 speed, 150 hp, 25 dmg)
+- Weighted random spawning (25% Scout, 25% Swarm, 15% Tank/Sniper, 20% Normal)
+- Enemy type synced to clients
+- Color-coded sprites (Orange=Scout, Gray=Tank, Purple=Sniper, Cyan=Swarm)
 
 **Session #2 - Logging, Static Sync, Enemy Aggro, Dash**:
 - Network diagnostics UI (F3 toggle)
@@ -221,7 +230,8 @@ run_client_local.bat     # Single client → localhost
 - Hurt flash for enemies
 
 ## Known Issues
-- None currently
+- Sniper laser sight requires valid target_player (interpolated clients may not have ref)
+- Enemy colors may need better distinction
 
 ## Next Session
 - Enemy variety (Scout, Tank, Sniper at minimum)

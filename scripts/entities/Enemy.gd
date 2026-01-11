@@ -31,6 +31,7 @@ var _wander_target: Vector2 = Vector2.ZERO
 var _sprite: Sprite2D
 var _health_bar: ColorRect
 var _hurt_flash_timer: float = 0.0
+var _base_color: Color = Color.DARK_RED  # Child classes can override
 static var _shared_tex: Texture2D = null
 
 
@@ -38,17 +39,21 @@ func _ready() -> void:
 	super._ready()
 	entity_type = "enemy"
 	
+	Log.entity("Enemy _ready: _base_color = %s" % _base_color)
+	
 	# Create shared texture once
 	if _shared_tex == null:
 		var img = Image.create(20, 20, false, Image.FORMAT_RGBA8)
-		img.fill(Color.RED)
+		img.fill(Color.WHITE)  # WHITE texture so modulation works
 		_shared_tex = ImageTexture.create_from_image(img)
 	
 	_sprite = Sprite2D.new()
 	_sprite.texture = _shared_tex
 	_sprite.centered = true
-	_sprite.modulate = Color.DARK_RED
+	_sprite.modulate = _base_color
 	add_child(_sprite)
+	
+	Log.entity("Enemy _ready: sprite.modulate = %s" % _sprite.modulate)
 	
 	# Health bar
 	_health_bar = ColorRect.new()
@@ -68,9 +73,9 @@ func _physics_process(delta: float) -> void:
 	if _hurt_flash_timer > 0.0:
 		_hurt_flash_timer -= delta
 		var flash_intensity = _hurt_flash_timer / 0.2
-		_sprite.modulate = Color.WHITE.lerp(Color.DARK_RED, 1.0 - flash_intensity)
+		_sprite.modulate = Color.WHITE.lerp(_base_color, 1.0 - flash_intensity)
 	else:
-		_sprite.modulate = Color.DARK_RED
+		_sprite.modulate = _base_color
 	
 	if not is_authority():
 		return  # Only server controls AI

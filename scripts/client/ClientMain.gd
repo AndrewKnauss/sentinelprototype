@@ -390,6 +390,10 @@ func _interpolate_entity(entity: NetworkedEntity, render_tick: int) -> void:
 	
 	if sb.has("s") and "stamina" in entity:
 		entity.stamina = sb["s"]
+	
+	# For enemies, apply full replicated state (includes custom fields like sniper aiming)
+	if entity is Enemy:
+		entity.apply_replicated_state(sb)
 
 #Handle player spawn RPC from server.
 #Creates Player entity, marks as local if it's our player, initializes interpolation buffer.
@@ -581,7 +585,7 @@ func _spawn_predicted_bullet(pos: Vector2, dir: Vector2, dmg: float = GameConsta
 	bullet.authority = _my_id
 	bullet.initialize(pos, dir.normalized(), _my_id, dmg)
 	_world.add_child(bullet)
-	Log.entity("Spawned predicted bullet at %v" % pos)
+	#Log.entity("Spawned predicted bullet at %v" % pos)
 
 
 #Handle static snapshot - resync all walls every 5 seconds.
