@@ -119,7 +119,13 @@ func get_replicated_state() -> Dictionary:
 func apply_replicated_state(state: Dictionary) -> void:
 	global_position = state.get("p", global_position)
 	rotation = state.get("r", rotation)
-	health = state.get("h", health)
+	
+	# Check if health decreased (took damage)
+	var new_health = state.get("h", health)
+	if new_health < health:
+		_hurt_flash_timer = 0.2  # Trigger flash on health drop
+	health = new_health
+	
 	velocity = state.get("v", velocity)
 
 

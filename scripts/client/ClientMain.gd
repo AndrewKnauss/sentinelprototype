@@ -283,10 +283,19 @@ func _on_ack(ack: Dictionary) -> void:
 	
 	var player = _players[_my_id]
 	var predicted = _predicted_states[ack_seq]
+	
+	# Check if any state differs
 	var pred_pos = predicted.get("p", Vector2.ZERO)
 	var srv_pos = _last_server_state.get("p", Vector2.ZERO)
+	var pred_health = predicted.get("h", 0.0)
+	var srv_health = _last_server_state.get("h", 0.0)
 	
-	if pred_pos.distance_to(srv_pos) < GameConstants.RECONCILE_POSITION_THRESHOLD:
+	var needs_reconcile = (
+		pred_pos.distance_to(srv_pos) >= GameConstants.RECONCILE_POSITION_THRESHOLD or
+		abs(pred_health - srv_health) > 0.01
+	)
+	
+	if not needs_reconcile:
 		_drop_confirmed(ack_seq)
 		return
 	
