@@ -86,9 +86,17 @@ func _ready() -> void:
 	_camera.position_smoothing_speed = 5.0
 	_world.add_child(_camera)
 	
-	# CONNECTION UI
+	# UI LAYER (stays fixed to screen, ignores camera)
+	var canvas_layer = CanvasLayer.new()
+	canvas_layer.name = "UI"
+	canvas_layer.layer = 10  # Always on top
+	add_child(canvas_layer)
+	
+	# CONNECTION UI (only show if not auto-connecting)
+	var auto_connect = "--auto-connect" in OS.get_cmdline_user_args()
 	var ui = Control.new()
-	add_child(ui)
+	ui.visible = not auto_connect  # Hide if auto-connecting
+	canvas_layer.add_child(ui)
 	
 	var host_input = LineEdit.new()
 	host_input.text = "web-production-5b732.up.railway.app"
@@ -118,7 +126,7 @@ func _ready() -> void:
 	var title = Label.new()
 	title.text = "CLIENT - WASD=Move, Mouse=Aim, LMB=Shoot, RMB=Build, SPACE=Dash, SHIFT=Sprint, R=Reload, 1/2/3=Switch Weapon"
 	title.position = Vector2(10, 10)
-	add_child(title)
+	canvas_layer.add_child(title)
 	
 	# Debug overlay (top-right)
 	_debug_label = Label.new()
@@ -126,14 +134,14 @@ func _ready() -> void:
 	_debug_label.add_theme_font_size_override("font_size", 14)
 	_debug_label.modulate = Color(1, 1, 0, 0.9)  # Yellow
 	_debug_label.visible = false
-	add_child(_debug_label)
+	canvas_layer.add_child(_debug_label)
 	
 	# Ammo HUD (bottom-right)
 	_ammo_label = Label.new()
 	_ammo_label.position = Vector2(DisplayServer.window_get_size().x - 200, DisplayServer.window_get_size().y - 80)
 	_ammo_label.add_theme_font_size_override("font_size", 24)
 	_ammo_label.modulate = Color(1, 1, 1, 1)
-	add_child(_ammo_label)
+	canvas_layer.add_child(_ammo_label)
 	
 	Net.client_connected.connect(func(id): 
 		_my_id = id
