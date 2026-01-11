@@ -1,0 +1,10 @@
+.git
+.godot
+.import
+*.import
+export_presets.cfg
+builds/
+*.md
+run_*.bat
+start_test_session.bat
+stop_test_session.bat
