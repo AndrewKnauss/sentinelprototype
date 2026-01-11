@@ -40,14 +40,14 @@ func _ready() -> void:
 	add_child(ui)
 	
 	var host_input = LineEdit.new()
-	host_input.text = "localhost"
+	host_input.text = "web-production-5b732.up.railway.app"
 	host_input.placeholder_text = "Server URL"
 	host_input.position = Vector2(10, 40)
 	host_input.size = Vector2(300, 30)
 	ui.add_child(host_input)
 	
 	var port_input = LineEdit.new()
-	port_input.text = "24567"
+	port_input.text = "443"
 	port_input.placeholder_text = "Port"
 	port_input.position = Vector2(320, 40)
 	port_input.size = Vector2(80, 30)

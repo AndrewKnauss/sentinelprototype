@@ -78,7 +78,8 @@ func connect_client(host: String, port: int) -> void:
 	var peer: MultiplayerPeer
 	if GameConstants.USE_WEBSOCKET:
 		peer = WebSocketMultiplayerPeer.new()
-		var url = "ws://" + host + ":" + str(port)
+		var protocol = "wss://" if port == 443 else "ws://"
+		var url = protocol + host + ":" + str(port)
 		var err = peer.create_client(url)
 		if err != OK:
 			push_error("Net.connect_client (WebSocket) failed: %s" % err)
