@@ -53,6 +53,18 @@ var _latest_tick: int = 0
 var _snap_buffers: Dictionary = {}  # net_id -> Array[{tick, state}]
 var _last_server_state: Dictionary = {}
 
+# Network diagnostics
+var _debug_visible: bool = false
+var _debug_label: Label
+var _last_snapshot_time: float = 0.0
+var _snapshot_count: int = 0
+var _last_ack_time: float = 0.0
+var _ack_count: int = 0
+var _reconcile_count: int = 0
+var _last_ping_send: float = 0.0
+var _ping_ms: float = 0.0
+var _fps_samples: Array = []
+
 # Initialize client, setup UI, and connect to network events.
 func _ready() -> void:
 	
@@ -101,6 +113,14 @@ func _ready() -> void:
 	title.position = Vector2(10, 10)
 	add_child(title)
 	
+	# Debug overlay (top-right)
+	_debug_label = Label.new()
+	_debug_label.position = Vector2(DisplayServer.window_get_size().x - 300, 10)
+	_debug_label.add_theme_font_size_override("font_size", 14)
+	_debug_label.modulate = Color(1, 1, 0, 0.9)  # Yellow
+	_debug_label.visible = false
+	add_child(_debug_label)
+	
 	Net.client_connected.connect(func(id): 
 		_my_id = id
 		print("CLIENT: My ID is ", id)
@@ -130,6 +150,59 @@ func _physics_process(_delta: float) -> void:
 	# Interpolate ALL non-local entities (players, enemies, NOT walls)
 	_interpolate_all_entities()
 
+func _process(delta: float) -> void:
+	# Toggle debug overlay with F3
+	if Input.is_action_just_pressed("ui_page_up"):  # F3 mapped in project settings
+		_debug_visible = !_debug_visible
+		_debug_label.visible = _debug_visible
+	
+	if _debug_visible:
+		_update_debug_overlay(delta)
+
+# Update debug overlay with network stats
+func _update_debug_overlay(delta: float) -> void:
+	# Track FPS
+	_fps_samples.append(1.0 / delta)
+	if _fps_samples.size() > 60:
+		_fps_samples.pop_front()
+	
+	var avg_fps = 0.0
+	for fps in _fps_samples:
+		avg_fps += fps
+	avg_fps /= _fps_samples.size()
+	
+	# Calculate packet loss (snapshots)
+	var expected_snapshots = int((Time.get_ticks_msec() - _last_snapshot_time) / (1000.0 / GameConstants.PHYSICS_FPS))
+	var snapshot_loss = 0.0
+	if expected_snapshots > 0:
+		snapshot_loss = float(_snapshot_count) / float(expected_snapshots) * 100.0
+		
+	# Entity counts
+	var interp_count = 0
+	for net_id in _snap_buffers:
+		var entity = Replication.get_entity(net_id)
+		if entity and not (entity is Bullet or entity is Wall):
+			interp_count += 1
+	
+	# Reset per-second counters
+	var now = Time.get_ticks_msec()
+	if now - _last_snapshot_time >= 1000:	
+		var text = ""
+		text += "FPS: %d\n" % int(avg_fps)
+		text += "dt Snapshot: %d ms\n" % int(_ping_ms)
+		text += "# Snapshots: %d | %d \n" % [_snapshot_count, expected_snapshots]
+		text += "Perc. Snapshots: %d \n" % snapshot_loss
+		text += "Reconciles/sec: %d\n" % _reconcile_count
+		text += "Entities: %d (Total) %d (Interp)\n" % [Replication._entities.size(), interp_count]
+		text += "Pending Inputs: %d\n" % _pending_inputs.size()
+		text += "Buffer Size: %d ticks" % (_snap_buffers.get(_my_id, []).size() if _my_id > 0 else 0)
+		
+		_debug_label.text = text
+		
+		_snapshot_count = 0
+		_reconcile_count = 0
+		_last_snapshot_time = now
+
 # Sample input, send to server, predict movement locally, store for reconciliation
 func _send_and_predict(dt: float) -> void:
 	
@@ -152,7 +225,9 @@ func _send_and_predict(dt: float) -> void:
 	_input_seq += 1
 	var cmd = {"seq": _input_seq, "mv": mv, "aim": aim, "btn": btn}
 	
-	# Send to server
+	# Send to server (measure ping on every 10th input)
+	if _input_seq % 10 == 0:
+		_last_ping_send = Time.get_ticks_msec()
 	Net.server_receive_input.rpc_id(1, cmd)
 	
 	# CLIENT-SIDE PREDICTION: Spawn bullet immediately for instant feedback
@@ -300,7 +375,13 @@ func _on_despawn_player(peer_id: int) -> void:
   #- Add to interpolation buffer
   #- Skip bullets (they're client-predicted)
 func _on_snapshot(snap: Dictionary) -> void:
-
+	_snapshot_count += 1
+	
+	# Measure ping
+	if _last_ping_send > 0:
+		_ping_ms = Time.get_ticks_msec() - _last_ping_send
+		_last_ping_send = 0
+	
 	_latest_tick = snap.get("tick", _latest_tick)
 	var states = snap.get("states", {})
 	
@@ -360,7 +441,8 @@ func _on_snapshot(snap: Dictionary) -> void:
 #This fixes prediction errors while maintaining responsive local movement.
 #Note: Health is NOT reconciled here - it's applied immediately in _on_snapshot.
 func _on_ack(ack: Dictionary) -> void:
-
+	_ack_count += 1
+		
 	var ack_seq = ack.get("ack_seq", 0)
 	if ack_seq <= 0 or _last_server_state.is_empty() or not _players.has(_my_id):
 		return
@@ -383,6 +465,7 @@ func _on_ack(ack: Dictionary) -> void:
 		return
 	
 	# Reconcile: rewind and replay
+	_reconcile_count += 1
 	player.apply_replicated_state(_last_server_state)
 	
 	var replay = []

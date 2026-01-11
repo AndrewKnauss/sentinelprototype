@@ -78,7 +78,7 @@ var needs_reconcile = pred_pos.distance_to(srv_pos) >= RECONCILE_POSITION_THRESH
 
 // Health applied separately from snapshots (no reconciliation)
 if new_health < player.health:
-    player._hurt_flash_timer = 0.2
+	player._hurt_flash_timer = 0.2
 player.health = new_health
 ```
 
@@ -97,8 +97,8 @@ INTERP_DELAY_TICKS: 2
 // Walls are static after placement
 // Only health updates from snapshots, no position interpolation
 if entity is Wall:
-    entity.health = state["h"]  // Update health only
-    continue  // Skip interpolation buffer
+	entity.health = state["h"]  // Update health only
+	continue  // Skip interpolation buffer
 ```
 
 **Bullet Handling**:
@@ -114,19 +114,19 @@ var _hurt_flash_timer: float = 0.0
 
 // Server: take_damage() sets timer
 func take_damage(amount: float) -> bool:
-    health -= amount
-    _hurt_flash_timer = 0.2
+	health -= amount
+	_hurt_flash_timer = 0.2
 
 // Client: detect health drop in apply_replicated_state()
 var new_health = state.get("h", health)
 if new_health < health:
-    _hurt_flash_timer = 0.2
+	_hurt_flash_timer = 0.2
 health = new_health
 
 // _process()/_physics_process(): Lerp to flash color
 if _hurt_flash_timer > 0.0:
-    var intensity = _hurt_flash_timer / 0.2
-    _sprite.modulate = FlashColor.lerp(BaseColor, 1.0 - intensity)
+	var intensity = _hurt_flash_timer / 0.2
+	_sprite.modulate = FlashColor.lerp(BaseColor, 1.0 - intensity)
 ```
 
 **Connection UI** (ClientMain.gd):
