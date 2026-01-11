@@ -59,6 +59,76 @@ func _send_and_predict(dt: float):
 
 ---
 
+## Implementation Notes (Session 3)
+
+### Completed Features
+- [x] Scout: Kiting AI with strafing
+- [x] Tank: Armor (60% reduction) + charge ability
+- [x] Sniper: Laser sight warning (1.5s) + long range
+- [x] Swarm: Simplified rush (no pack coordination)
+- [x] Normal: Baseline enemy
+
+### Critical Fixes Applied
+
+**Color Modulation Issue**:
+- Problem: Enemy texture was RED, causing incorrect color multiplication
+- Fix: Changed texture from `Color.RED` to `Color.WHITE` in Enemy.gd
+- Child classes must set `_base_color` BEFORE calling `super._ready()`
+
+**Sniper Laser Client Visibility**:
+- Problem: `_is_aiming` state not applied during interpolation
+- Fix: Added `entity.apply_replicated_state(sb)` in ClientMain's `_interpolate_entity()`
+- Laser now uses local coordinates (`Vector2.RIGHT * dist`) since Line2D rotates with parent
+
+**Network Sync**:
+- Enemy types sent via `extra.enemy_type` in spawn_entity RPC
+- Types preserved on respawn (server tracks type and respawns same)
+- Client spawns correct class based on type string
+
+### Spawn Weights
+```gdscript
+types = ["scout", "tank", "sniper", "swarm", "normal"]
+weights = [0.25, 0.15, 0.15, 0.25, 0.2]
+```
+- Scout/Swarm: 50% (action-focused)
+- Tank/Sniper: 30% (variety)
+- Normal: 20% (baseline)
+
+### Balance Observations
+- Sniper 1.5s aim time feels good (visible warning)
+- Tank charge (8s cooldown, 2s duration) creates interesting chase dynamics
+- Scout kiting at 300-500 range works well
+- Swarm simplified from original design (no pack coordination needed)
+
+### Healer Deferred
+Original design included Healer enemy type but was cut for complexity:
+- Would require AOE heal detection
+- Needs visual effects for healing
+- Adds significant AI coordination overhead
+- Can be added later if needed
+
+### Files Modified
+- `scripts/entities/Enemy.gd` - Added `_base_color` variable, changed texture to WHITE
+- `scripts/entities/enemies/EnemyScout.gd` - Kiting AI
+- `scripts/entities/enemies/EnemyTank.gd` - Armor + charge
+- `scripts/entities/enemies/EnemySniper.gd` - Laser sight + aim delay
+- `scripts/entities/enemies/EnemySwarm.gd` - Simplified rush
+- `scripts/server/ServerMain.gd` - Weighted spawn system, type preservation
+- `scripts/net/Net.gd` - Enemy type in spawn RPC
+- `scripts/client/ClientMain.gd` - Apply full replicated state for enemies
+
+### Testing Verified
+- [x] All enemy types spawn with correct colors
+- [x] Scout kites and strafes
+- [x] Tank charges when in range (100-400)
+- [x] Sniper laser visible to all clients
+- [x] Swarm rushes aggressively
+- [x] Different damage values apply correctly
+- [x] Enemies respawn as same type
+- [x] Late-joining clients see correct types
+
+---
+
 ## Enemy Types
 
 ### 1. Scout (Fast, Fragile)

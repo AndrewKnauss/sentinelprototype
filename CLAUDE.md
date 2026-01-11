@@ -230,10 +230,10 @@ run_client_local.bat     # Single client → localhost
 - Hurt flash for enemies
 
 ## Known Issues
-- Sniper laser sight requires valid target_player (interpolated clients may not have ref)
-- Enemy colors may need better distinction
+- None currently
 
 ## Next Session
-- Enemy variety (Scout, Tank, Sniper at minimum)
-- Polish pass (muzzle flash, shooting sound, screen shake)
-- Test weapon balance (fire rates, damage, spread)
+- **Session 4: Database persistence** (CRITICAL - blocking for all other systems)
+- Player save/load (position, stats, inventory)
+- Structure persistence
+- Polish pass when combat feels good (muzzle flash, sounds, particles)

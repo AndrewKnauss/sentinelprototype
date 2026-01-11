@@ -12,7 +12,7 @@
 - [x] Fix dash input (use just_pressed) - **DONE**
 - [x] **Sprint system** (Shift key, stamina bar) - **DONE**
 - [x] **Weapon system** (5 types, switching, ammo) - **DONE**
-- [ ] **Enemy variety** (Scout, Tank, Sniper, Swarm, Healer) - See `ENEMIES_AND_SPRINT.md`
+- [x] **Enemy variety** (Scout, Tank, Sniper, Swarm, Normal) - **DONE**
 
 ### Session 4: Persistence Foundation
 **MUST DO BEFORE OTHER SYSTEMS**
@@ -251,15 +251,16 @@ See `SYSTEM_DESIGN_INDEX.md` for overview.
 
 ## IMMEDIATE NEXT STEPS
 
-**This Week (Session 3)**:
-1. Sprint system (stamina bar, Shift key)
-2. Weapon switching (1/2/3 keys, ammo display)
-3. Enemy variety (at least Scout + Tank)
-4. Quick polish (muzzle flash, shooting sound)
+**This Week (Session 4)**:
+1. **DATABASE SETUP** - CRITICAL BLOCKER
+   - SQLite integration
+   - Player persistence (position, stats, inventory)
+   - Structure persistence (walls survive restart)
+   - Autosave system (5 min intervals)
 
-**Next Week (Session 4)**:
-1. **DATABASE SETUP** - blocking for all other systems
-2. Player persistence
-3. Loot system foundation
+**Next Week (Session 5)**:
+1. Loot system foundation
+2. Item drops + inventory
+3. Base building (Tool Cupboard)
 
 **Critical Rule**: Don't implement Hot Loot, Bounties, or Territory Control until Database is working.
