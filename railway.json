@@ -1,6 +1,6 @@
 {
   "build": {
-    "builder": "NIXPACKS"
+    "builder": "RAILPACK"
   },
   "deploy": {
     "startCommand": "./builds/server/SentinelServer.x86_64 --headless -- --server --port=${PORT}",
