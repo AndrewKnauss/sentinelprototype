@@ -68,8 +68,8 @@ var _sps_latest_ms: float = 0.0
 var _last_time_snapshot: float = 0.0
 var _time_last_snap_ms: float = 0.0
 var _fps_samples: Array = []
-var _ticks_since_input: int = 0  # Track ticks since last active input
-var _last_aim: Vector2 = Vector2.ZERO  # Track aim changes
+#var _ticks_since_input: int = 0  # Track ticks since last active input (DISABLED)
+#var _last_aim: Vector2 = Vector2.ZERO  # Track aim changes (DISABLED)
 
 # Initialize client, setup UI, and connect to network events.
 func _ready() -> void:
@@ -250,45 +250,24 @@ func _send_and_predict(dt: float) -> void:
 	_input_seq += 1
 	var cmd = {"seq": _input_seq, "mv": mv, "aim": aim, "btn": btn}
 	
-	# Detect active input (movement, buttons, OR aim change)
-	var has_movement = mv.length_squared() > 0.01
-	var has_buttons = btn != 0
-	var aim_changed = aim.distance_to(_last_aim) > 0.01  # ~0.5 degree threshold
-	var has_input = has_movement or has_buttons or aim_changed
-		
-	# Send if:
-	# 1. Active input (move, button, or aim change)
-	# 2. Within 3 ticks after input stopped (confirm stop to server)
-	# 3. Once per second keepalive (for ACK flow)
-	if has_input:
-		_ticks_since_input = 0
-		
-		_last_aim = aim # Update last aim
-	else:
-		_ticks_since_input += 1
-	
-	var should_send = has_input or _ticks_since_input <= 3 or (_input_seq % GameConstants.PHYSICS_FPS == 0)
-	
-	if should_send:
-		# Measure ping on every 10th sent input
-		if _input_seq % 10 == 0:
-			_last_ping_send = Time.get_ticks_msec()
-		Net.server_receive_input.rpc_id(1, cmd)
+	# Send all inputs (idle optimization disabled)
+	if _input_seq % 10 == 0:
+		_last_ping_send = Time.get_ticks_msec()
+	Net.server_receive_input.rpc_id(1, cmd)
 	
 	# CLIENT-SIDE PREDICTION: Spawn bullet immediately for instant feedback
 	if btn & GameConstants.BTN_SHOOT and player.shoot():
 		_spawn_predicted_bullet(player.global_position, aim)
 	
-	# Predict locally (always, even if not sent to server)
+	# Predict locally
 	player.apply_input(mv, aim, btn, dt)
 	
-	# Store for reconciliation (only if sent to server)
-	if should_send:
-		_pending_inputs.append(cmd)
-		_predicted_states[_input_seq] = player.get_replicated_state()
-		
-		if _pending_inputs.size() > 256:
-			_pending_inputs.pop_front()
+	# Store for reconciliation
+	_pending_inputs.append(cmd)
+	_predicted_states[_input_seq] = player.get_replicated_state()
+	
+	if _pending_inputs.size() > 256:
+		_pending_inputs.pop_front()
 
 #Interpolate all non-local entities (remote players, enemies) between buffered snapshots.
 #Renders entities 2 ticks behind to ensure smooth interpolation even with jitter.

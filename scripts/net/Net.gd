@@ -205,9 +205,8 @@ func spawn_entity(data: Dictionary) -> void:
 func despawn_entity(net_id: int) -> void:
 	if is_server():
 		return
-	Log.entity("Despawning entity %d" % net_id)
 	var entity = Replication.get_entity(net_id)
 	if entity:
+		Log.entity("Despawning entity %d" % net_id)
 		entity.queue_free()
-	else:
-		Log.warn("Entity %d not found in Replication" % net_id)
+	# Silently ignore if not found - likely short-lived entity (bullet)

@@ -151,8 +151,8 @@ func _on_hit_player(player: Player) -> void:
 func _on_hit_enemy(enemy: Enemy) -> void:
 	"""Handle enemy collision."""
 	if Net.is_server():
-		# Server: Apply damage
-		if enemy.take_damage(GameConstants.BULLET_DAMAGE):
+		# Server: Apply damage with attacker ID
+		if enemy.take_damage(GameConstants.BULLET_DAMAGE, owner_id):
 			# Enemy killed - it will emit died signal which ServerMain handles
 			pass
 		# Tell clients to despawn this bullet

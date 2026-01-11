@@ -17,6 +17,11 @@ var health: float = GameConstants.ENEMY_MAX_HEALTH
 var velocity: Vector2 = Vector2.ZERO
 var target_player: Player = null
 
+# Aggro tracking
+var _damage_taken: Dictionary = {}  # player_id -> damage_dealt
+var _aggro_target: Player = null
+var _aggro_lock_time: float = 0.0  # Time to stick to current target
+
 var _state: State = State.WANDER
 var _state_timer: float = 0.0
 var _shoot_cooldown: float = 0.0
@@ -73,13 +78,14 @@ func _physics_process(delta: float) -> void:
 	_shoot_cooldown -= delta
 	_wander_timer -= delta
 	_state_timer -= delta
+	_aggro_lock_time -= delta
+	
+	# Update target based on aggro
+	target_player = _get_aggro_target()
 	
 	# State machine transitions
 	if _state_timer <= 0:
 		_transition_to_next_state()
-	
-	# Find nearest player
-	target_player = _find_nearest_player()
 	
 	# Execute current state
 	match _state:
@@ -207,10 +213,66 @@ func _find_nearest_player() -> Player:
 	return nearest
 
 
-func take_damage(amount: float) -> bool:
+func _get_aggro_target() -> Player:
+	"""Get target based on aggro system with sticky targeting."""
+	
+	# If we have a locked aggro target and they're still valid
+	if _aggro_lock_time > 0.0 and _aggro_target and is_instance_valid(_aggro_target):
+		# Keep locked unless they're too far away
+		var dist = global_position.distance_to(_aggro_target.global_position)
+		if dist < GameConstants.ENEMY_AGGRO_RANGE:
+			return _aggro_target
+	
+	# Lock expired or target invalid - recalculate
+	_aggro_target = null
+	_aggro_lock_time = 0.0
+	
+	# Find player who has dealt most damage
+	var top_damage = 0.0
+	var top_attacker: Player = null
+	
+	for player_id in _damage_taken:
+		var damage = _damage_taken[player_id]
+		if damage > top_damage:
+			# Find the player entity
+			for entity in Replication.get_all_entities():
+				if entity is Player and entity.net_id == player_id:
+					top_damage = damage
+					top_attacker = entity
+					break
+	
+	# If someone has damaged us, target them
+	if top_attacker:
+		return top_attacker
+	
+	# Otherwise, find nearest player
+	return _find_nearest_player()
+
+
+func take_damage(amount: float, attacker_id: int = 0) -> bool:
 	"""Apply damage. Returns true if killed."""
 	health -= amount
 	_hurt_flash_timer = 0.2  # Flash white for 0.2 seconds
+	
+	# Track damage for aggro
+	if attacker_id > 0:
+		if not _damage_taken.has(attacker_id):
+			_damage_taken[attacker_id] = 0.0
+		_damage_taken[attacker_id] += amount
+		
+		# Lock aggro to this attacker
+		for entity in Replication.get_all_entities():
+			if entity is Player and entity.net_id == attacker_id:
+				_aggro_target = entity
+				_aggro_lock_time = GameConstants.ENEMY_AGGRO_LOCK_TIME
+				
+				# IMMEDIATELY switch to chase state when taking damage
+				if _state != State.CHASE:
+					_state = State.CHASE
+					_state_timer = randf_range(8.0, 12.0)
+				
+				break
+	
 	if health <= 0:
 		health = 0
 		died.emit(net_id)

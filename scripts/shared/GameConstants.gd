@@ -24,6 +24,8 @@ const ENEMY_SHOOT_COOLDOWN: float = 2.0
 const ENEMY_SHOOT_RANGE: float = 400.0
 const ENEMY_RESPAWN_TIME: float = 10.0
 const ENEMY_FRIENDLY_FIRE: bool = false  # Set to false to disable enemy-to-enemy damage
+const ENEMY_AGGRO_RANGE: float = 600.0  # Max distance to maintain aggro
+const ENEMY_AGGRO_LOCK_TIME: float = 3.0  # Seconds to stick to attacker
 
 # Bullet
 const BULLET_SPEED: float = 600.0
