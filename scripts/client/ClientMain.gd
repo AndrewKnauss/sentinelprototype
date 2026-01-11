@@ -35,6 +35,35 @@ func _ready() -> void:
 	_camera.position_smoothing_speed = 5.0
 	_world.add_child(_camera)
 	
+	# CONNECTION UI
+	var ui = Control.new()
+	add_child(ui)
+	
+	var host_input = LineEdit.new()
+	host_input.text = "localhost"
+	host_input.placeholder_text = "Server URL"
+	host_input.position = Vector2(10, 40)
+	host_input.size = Vector2(300, 30)
+	ui.add_child(host_input)
+	
+	var port_input = LineEdit.new()
+	port_input.text = "24567"
+	port_input.placeholder_text = "Port"
+	port_input.position = Vector2(320, 40)
+	port_input.size = Vector2(80, 30)
+	ui.add_child(port_input)
+	
+	var connect_btn = Button.new()
+	connect_btn.text = "Connect"
+	connect_btn.position = Vector2(410, 40)
+	connect_btn.size = Vector2(100, 30)
+	connect_btn.pressed.connect(func():
+		Net.connect_client(host_input.text, int(port_input.text))
+		ui.visible = false
+	)
+	ui.add_child(connect_btn)
+	# END CONNECTION UI
+	
 	var title = Label.new()
 	title.text = "CLIENT - WASD=Move, Mouse=Aim, LMB=Shoot, RMB=Build"
 	title.position = Vector2(10, 10)

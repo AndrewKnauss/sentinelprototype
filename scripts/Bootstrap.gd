@@ -59,9 +59,9 @@ func _ready() -> void:
 		# Add client controller node
 		var client_node: Node = (load("res://scripts/client/ClientMain.gd") as Script).new()
 		add_child(client_node)
-
-		# Start transport in client mode
-		Net.connect_client(host, port)
+		
+		# Don't auto-connect - let UI handle it
+		# Net.connect_client(host, port)
 
 # -----------------------------------------------------------------------------
 # _arg_value(prefix, default_val)
