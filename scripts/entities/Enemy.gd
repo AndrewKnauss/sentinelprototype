@@ -9,6 +9,7 @@ class_name Enemy
 # =============================================================================
 
 signal died(enemy_id: int)
+signal wants_to_shoot(direction: Vector2)
 
 var health: float = GameConstants.ENEMY_MAX_HEALTH
 var velocity: Vector2 = Vector2.ZERO
@@ -50,8 +51,9 @@ func _ready() -> void:
 
 
 func _physics_process(delta: float) -> void:
+	_update_health_bar()
+	
 	if not is_authority():
-		_update_health_bar()
 		return  # Only server controls AI
 	
 	_shoot_cooldown -= delta
@@ -64,8 +66,6 @@ func _physics_process(delta: float) -> void:
 		_ai_chase_and_shoot(delta)
 	else:
 		_ai_wander(delta)
-	
-	_update_health_bar()
 
 
 func _ai_chase_and_shoot(delta: float) -> void:
@@ -83,9 +83,10 @@ func _ai_chase_and_shoot(delta: float) -> void:
 	else:
 		velocity = Vector2.ZERO
 	
-	# Shoot if in range
+	# Shoot if in range and cooldown ready
 	if dist < GameConstants.ENEMY_SHOOT_RANGE and _shoot_cooldown <= 0:
-		shoot()
+		_shoot_cooldown = GameConstants.ENEMY_SHOOT_COOLDOWN
+		wants_to_shoot.emit(to_player.normalized())
 
 
 func _ai_wander(delta: float) -> void:
@@ -122,15 +123,6 @@ func _find_nearest_player() -> Player:
 				nearest = entity
 	
 	return nearest
-
-
-func shoot() -> bool:
-	"""Attempt to shoot. Returns true if shot fired."""
-	if _shoot_cooldown > 0:
-		return false
-	
-	_shoot_cooldown = GameConstants.ENEMY_SHOOT_COOLDOWN
-	return true
 
 
 func take_damage(amount: float) -> bool:

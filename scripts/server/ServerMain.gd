@@ -72,11 +72,15 @@ func _physics_process(_delta: float) -> void:
 			if btn & GameConstants.BTN_BUILD:
 				_try_build_wall(player, aim)
 	
-	# 2. Simulate enemies (shoot at players)
+	# 2. Enemies simulate themselves in their _physics_process
+	#    (AI, shooting, movement all handled by Enemy.gd)
+	#    Just check if they want to shoot
 	for enemy in _enemies:
-		if enemy and is_instance_valid(enemy) and enemy.shoot():
-			var aim_dir = Vector2.RIGHT.rotated(enemy.rotation)
-			_spawn_bullet(enemy.global_position, aim_dir, 0)  # 0 = enemy owner
+		if enemy and is_instance_valid(enemy):
+			# Enemy AI already runs in Enemy._physics_process
+			# We just need to listen for when they decide to shoot
+			# This is handled by checking enemy.shoot() in Enemy._ai_chase_and_shoot
+			pass
 	
 	# 3. Check bullet collisions
 	_process_bullets(dt)
@@ -90,10 +94,6 @@ func _physics_process(_delta: float) -> void:
 			"tick": _server_tick,
 			"states": states
 		}
-		
-		# DEBUG: Print snapshot contents occasionally
-		if _server_tick % 120 == 0:  # Every 2 seconds
-			print("SERVER: Sending snapshot with ", states.size(), " entities")
 		
 		Net.client_receive_snapshot.rpc(snapshot)
 		
@@ -178,6 +178,7 @@ func _spawn_enemy(pos: Vector2) -> void:
 	enemy.authority = 1
 	enemy.global_position = pos
 	enemy.died.connect(func(_id): _respawn_enemy(enemy))
+	enemy.wants_to_shoot.connect(func(dir): _spawn_bullet(enemy.global_position, dir, 0))
 	_world.add_child(enemy)
 	_enemies.append(enemy)
 	

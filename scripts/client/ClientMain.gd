@@ -138,6 +138,12 @@ func _interpolate_entity(entity: NetworkedEntity, render_tick: int) -> void:
 		entity.global_position = sa["p"].lerp(sb["p"], t)
 	if sa.has("r") and sb.has("r"):
 		entity.rotation = lerp_angle(sa["r"], sb["r"], t)
+	
+	# Apply non-interpolated values (health, etc.) from most recent snapshot
+	if sb.has("h") and "health" in entity:
+		entity.health = sb["h"]
+	if sb.has("v") and "velocity" in entity:
+		entity.velocity = sb["v"]
 
 
 func _on_spawn_player(payload: Dictionary) -> void:
