@@ -194,6 +194,22 @@ run_client_local.bat     # Single client → localhost
 
 ## Recent Changes
 
+**Session #5 - Collision System (Phase 1)**:
+- **Wall collision blocking** (walls now block player/enemy movement)
+- **Collision layers** properly configured:
+  - Layer 1 (STATIC): Walls and structures
+  - Layer 2 (PLAYER): Player characters
+  - Layer 3 (ENEMY): AI enemies (using bit value 4)
+  - Layer 4 (PROJECTILE): Bullets (raycast-based)
+- **Wall sliding** (players/enemies slide along walls instead of stopping)
+- **Phase-through behavior** (players can walk through enemies, prevents body-blocking)
+- **CRITICAL FIX**: Corrected position sync pattern to prevent teleporting
+  - Child collision body always stays at (0,0) relative to parent
+  - Parent accumulates movement delta: `global_position += _collision_body.position`
+  - Reset child after each move: `_collision_body.position = Vector2.ZERO`
+  - Previous pattern (`global_position = _collision_body.global_position`) caused feedback loop
+- Design doc created: `docs/systems/COLLISION.md` (covers future FOG, sound, interaction)
+
 **Session #4 - Database Persistence + Username System**:
 - **Username-based identity** (solves peer_id persistence problem)
   - Usernames persist across sessions (peer_ids don't)
@@ -267,7 +283,7 @@ run_client_local.bat     # Single client → localhost
 - None currently
 
 ## Next Session
-- **Session 5: Loot & Inventory System**
+- **Session 6: Loot & Inventory System**
 - Item definitions (ItemData)
 - ItemDrop entity (spawns on ground)
 - Inventory component (20 slots)

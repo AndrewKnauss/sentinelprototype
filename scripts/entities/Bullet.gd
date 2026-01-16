@@ -83,7 +83,7 @@ func _check_collision() -> bool:
 			global_position,
 			global_position + velocity.normalized() * 10
 		)
-		query.collision_mask = 2  # Layer 2 = walls
+		query.collision_mask = 1  # Layer 1 = STATIC (walls)
 		query.exclude = [self]
 		
 		var result = space.intersect_ray(query)

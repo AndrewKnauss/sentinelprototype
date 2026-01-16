@@ -96,7 +96,29 @@ Map zones with PvP consequences: Safe → Neutral → Lawless.
 
 ---
 
-### 6. [Persistence](systems/PERSISTENCE.md)
+### 6. [Collision System](systems/COLLISION.md)
+**Dependencies**: None  
+**Priority**: CRITICAL (foundation for movement/FOG/sound)  
+**Complexity**: Low (Phase 1), High (Future phases)
+
+Collision layers for movement blocking, line-of-sight, and sound propagation.
+
+**Key Features (Phase 1 - Implemented)**:
+- Wall collision blocking (Layer 1 = STATIC)
+- Player/Enemy movement with wall sliding
+- Phase-through behavior (players/enemies don't collide)
+- CharacterBody2D collision detection
+
+**Future Phases**:
+- Phase 2: Fog of War (raycast visibility, client culling)
+- Phase 3: Sound System (gunshot alerts, wall muffling)
+- Phase 4: Interaction (E-key raycasting, doors/workbenches)
+
+**Risks**: Players getting stuck in walls after lag (server validates with test_move)
+
+---
+
+### 7. [Persistence](systems/PERSISTENCE.md)
 **Dependencies**: None  
 **Priority**: CRITICAL (required before other systems)  
 **Complexity**: High
@@ -116,17 +138,19 @@ Database-backed saves for players, inventory, structures.
 
 ## Implementation Order
 
-### Phase 1: Foundation (Week 1-2)
-1. **Persistence** - MUST DO FIRST
-2. **Loot System** - Core mechanic
+### Phase 1: Foundation (Week 1-2) ✓
+1. **Persistence** - COMPLETE (JSON backend, autosave, username system)
+2. **Collision System (Phase 1)** - COMPLETE (walls block movement)
+3. **Loot System** - Next up
 
 ### Phase 2: Anti-Griefing (Week 3-4)
-3. **Hot Loot** - Requires loot system
-4. **Bounty System** - Requires levels/XP (add simple XP first)
+4. **Hot Loot** - Requires loot system
+5. **Bounty System** - Requires levels/XP (add simple XP first)
 
 ### Phase 3: Content (Week 5-6)
-5. **World Events** - Requires loot system
-6. **Lawfulness Zones** - DEFER until map expansion
+6. **World Events** - Requires loot system
+7. **Lawfulness Zones** - DEFER until map expansion
+8. **Collision System (Phase 2-4)** - FOG, sound, interaction (after base building)
 
 ---
 

@@ -33,6 +33,7 @@
 - [x] Username sync in snapshots
 - [x] UI improvements (anchor-based positioning for debug/ammo labels)
 - [x] UsernameDialog for username input
+- [x] **Collision System (Phase 1)** - Walls block movement, slide behavior
 
 ### Session 6: Loot & Inventory
 - [ ] **Item system** (ItemData definitions) - See `LOOT_SYSTEM.md`

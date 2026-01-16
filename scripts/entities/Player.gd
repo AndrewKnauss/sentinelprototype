@@ -28,6 +28,7 @@ var _label: Label
 var _health_bar: ColorRect
 var _stamina_bar: ColorRect
 var _hurt_flash_timer: float = 0.0
+var _collision_body: CharacterBody2D  # For collision detection
 
 static var _shared_tex: Texture2D = null
 
@@ -35,6 +36,19 @@ static var _shared_tex: Texture2D = null
 func _ready() -> void:
 	super._ready()
 	entity_type = "player"
+	
+	# Create collision body as child
+	_collision_body = CharacterBody2D.new()
+	_collision_body.collision_layer = 2      # Layer 2 = PLAYER
+	_collision_body.collision_mask = 1 | 2   # Collide with STATIC (walls) + PLAYER
+	add_child(_collision_body)
+	
+	# Add collision shape
+	var shape = CollisionShape2D.new()
+	var circle = CircleShape2D.new()
+	circle.radius = 8.0  # Player collision radius
+	shape.shape = circle
+	_collision_body.add_child(shape)
 	
 	# Create shared texture once
 	if _shared_tex == null:
@@ -164,7 +178,38 @@ func apply_input(mv: Vector2, aim: Vector2, buttons: int, dt: float) -> void:
 	else:
 		velocity = mv * GameConstants.PLAYER_MOVE_SPEED
 	
-	global_position += velocity * dt
+	# Apply velocity with collision detection
+	# IMPORTANT: We move the parent entity, not the child collision body
+	# The child's position is always (0,0) relative to parent
+	
+	# Calculate desired movement
+	var motion = velocity * dt
+	
+	# Test collision using child body
+	_collision_body.velocity = velocity
+	var collision = _collision_body.move_and_collide(motion)
+	
+	if collision:
+		# Hit a wall - calculate slide
+		var slide_velocity = velocity.slide(collision.get_normal())
+		var slide_motion = slide_velocity * dt
+		
+		# Apply slide movement
+		_collision_body.move_and_collide(slide_motion)
+		
+		# Get the total movement from child's local position change
+		var total_motion = _collision_body.position
+		
+		# Apply to parent
+		global_position += total_motion
+		
+		# Reset child to center
+		_collision_body.position = Vector2.ZERO
+	else:
+		# No collision - move parent by full amount
+		global_position += motion
+		# Child stays at (0,0)
+		_collision_body.position = Vector2.ZERO
 	
 	# Clamp to world bounds
 	global_position.x = clamp(global_position.x, 0, 1024)

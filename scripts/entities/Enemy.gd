@@ -32,12 +32,26 @@ var _sprite: Sprite2D
 var _health_bar: ColorRect
 var _hurt_flash_timer: float = 0.0
 var _base_color: Color = Color.DARK_RED  # Child classes can override
+var _collision_body: CharacterBody2D  # For collision detection
 static var _shared_tex: Texture2D = null
 
 
 func _ready() -> void:
 	super._ready()
 	entity_type = "enemy"
+	
+	# Create collision body as child
+	_collision_body = CharacterBody2D.new()
+	_collision_body.collision_layer = 4      # Layer 3 = ENEMY (bit value 4)
+	_collision_body.collision_mask = 1 | 4   # Collide with STATIC (walls) + ENEMY
+	add_child(_collision_body)
+	
+	# Add collision shape
+	var shape = CollisionShape2D.new()
+	var circle = CircleShape2D.new()
+	circle.radius = 10.0  # Enemy collision radius (slightly bigger than player)
+	shape.shape = circle
+	_collision_body.add_child(shape)
 	
 	Log.entity("Enemy _ready: _base_color = %s" % _base_color)
 	
@@ -148,7 +162,27 @@ func _ai_chase_and_shoot(delta: float) -> void:
 	# Move toward player (with some spacing)
 	if dist > 200:
 		velocity = to_player.normalized() * GameConstants.ENEMY_MOVE_SPEED
-		global_position += velocity * delta
+		
+		# Calculate motion
+		var motion = velocity * delta
+		
+		# Test collision
+		_collision_body.velocity = velocity
+		var collision = _collision_body.move_and_collide(motion)
+		
+		if collision:
+			# Slide along walls
+			var slide_velocity = velocity.slide(collision.get_normal())
+			var slide_motion = slide_velocity * delta
+			_collision_body.move_and_collide(slide_motion)
+			
+			# Apply child's movement to parent
+			global_position += _collision_body.position
+			_collision_body.position = Vector2.ZERO
+		else:
+			# No collision - apply full movement to parent
+			global_position += motion
+			_collision_body.position = Vector2.ZERO
 	else:
 		velocity = Vector2.ZERO
 	
@@ -166,7 +200,28 @@ func _ai_wander(delta: float) -> void:
 	var to_target = _wander_target - global_position
 	if to_target.length() > 10:
 		velocity = to_target.normalized() * (GameConstants.ENEMY_MOVE_SPEED * 0.5)
-		global_position += velocity * delta
+		
+		# Calculate motion
+		var motion = velocity * delta
+		
+		# Test collision
+		_collision_body.velocity = velocity
+		var collision = _collision_body.move_and_collide(motion)
+		
+		if collision:
+			# Slide along walls
+			var slide_velocity = velocity.slide(collision.get_normal())
+			var slide_motion = slide_velocity * delta
+			_collision_body.move_and_collide(slide_motion)
+			
+			# Apply child's movement to parent
+			global_position += _collision_body.position
+			_collision_body.position = Vector2.ZERO
+		else:
+			# No collision - apply full movement to parent
+			global_position += motion
+			_collision_body.position = Vector2.ZERO
+		
 		rotation = to_target.angle()
 	else:
 		velocity = Vector2.ZERO
@@ -188,7 +243,28 @@ func _ai_separate(delta: float) -> void:
 	if count > 0:
 		separation = separation.normalized()
 		velocity = separation * GameConstants.ENEMY_MOVE_SPEED
-		global_position += velocity * delta
+		
+		# Calculate motion
+		var motion = velocity * delta
+		
+		# Test collision
+		_collision_body.velocity = velocity
+		var collision = _collision_body.move_and_collide(motion)
+		
+		if collision:
+			# Slide along walls
+			var slide_velocity = velocity.slide(collision.get_normal())
+			var slide_motion = slide_velocity * delta
+			_collision_body.move_and_collide(slide_motion)
+			
+			# Apply child's movement to parent
+			global_position += _collision_body.position
+			_collision_body.position = Vector2.ZERO
+		else:
+			# No collision - apply full movement to parent
+			global_position += motion
+			_collision_body.position = Vector2.ZERO
+		
 		rotation = separation.angle()
 	else:
 		# No enemies nearby, go back to wandering

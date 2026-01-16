@@ -38,10 +38,10 @@ func _ready() -> void:
 	_health_bar.color = Color.CYAN
 	add_child(_health_bar)
 	
-	# Collision (blocks bullets)
+	# Collision (blocks bullets and movement)
 	_collision = StaticBody2D.new()
-	_collision.collision_layer = 2  # Walls on layer 2
-	_collision.collision_mask = 0
+	_collision.collision_layer = 1  # Layer 1 = STATIC (walls, terrain)
+	_collision.collision_mask = 0   # Walls don't move, no collision checks needed
 	add_child(_collision)
 	
 	_shape = CollisionShape2D.new()
