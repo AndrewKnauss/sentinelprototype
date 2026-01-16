@@ -194,7 +194,25 @@ run_client_local.bat     # Single client → localhost
 
 ## Recent Changes
 
-**Session #4 - Database Persistence**:
+**Session #4 - Database Persistence + Username System**:
+- **Username-based identity** (solves peer_id persistence problem)
+  - Usernames persist across sessions (peer_ids don't)
+  - Client sends username on connect
+  - Server validates (3-16 chars, alphanumeric + underscore)
+  - Username uniqueness enforced (one session per username)
+  - Case-insensitive storage ("Alice" = "alice")
+- **Username validation** (`UsernameValidator.gd`)
+  - Client-side + server-side validation
+  - Reserved names list (admin, server, moderator, system, bot)
+  - Regex enforcement (alphanumeric + underscore only)
+- **Username input UI** (`UsernameDialog.gd`)
+  - Shows after connection if --username not provided
+  - Live validation feedback
+  - Server response handling (success/error)
+- **Command-line username support**
+  - `run_client_local.bat Alice` → auto-login as Alice
+  - `--username=Alice` flag for auto-connect
+  - `start_test_session.bat` uses Alice/Bob/Charlie
 - **Persistence abstraction layer** (swappable backends)
 - **JSON persistence backend** (zero dependencies, human-readable)
 - **Player login system** (load on connect, save on disconnect)
@@ -203,11 +221,11 @@ run_client_local.bat     # Single client → localhost
 - **Admin commands** (F5=wipe structures, F6=wipe players, F7=show stats)
 - **Graceful shutdown** (saves all data on server close)
 - File structure:
-  - `user://saves/players/{peer_id}.json` - One file per player
-  - `user://saves/inventory/{peer_id}.json` - One file per inventory (TODO)
-  - `user://saves/structures.json` - All structures in single file
-- Player data saved: position, health (level/xp/currency ready for future)
-- Structure data saved: type, position, health, owner
+  - `user://saves/players/{username}.json` - One file per player (by username)
+  - `user://saves/inventory/{username}.json` - One file per inventory (TODO)
+  - `user://saves/structures.json` - All structures (owner_username field)
+- Player data saved: username, position, health (level/xp/currency ready)
+- Structure data saved: type, position, health, owner_username
 - Ready for SQLite migration when >50 concurrent players
 
 **Session #3 - Sprint, Weapons & Enemy Variety**:

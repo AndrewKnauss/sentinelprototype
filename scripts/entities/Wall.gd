@@ -11,7 +11,8 @@ class_name Wall
 signal destroyed(wall_id: int)
 
 var health: float = GameConstants.WALL_MAX_HEALTH
-var builder_id: int = 0  # Who built this wall
+var builder_id: int = 0  # Who built this wall (runtime peer_id)
+var builder_username: String = ""  # Builder's username (for persistence)
 
 var _sprite: ColorRect
 var _health_bar: ColorRect

@@ -16,27 +16,30 @@ func _ready():
 	print("[Persistence] Backend initialized: %s" % _backend.get_script().resource_path.get_file())
 
 # ========== PLAYER API ==========
-func load_player(peer_id: int) -> Dictionary:
-	return _backend.load_player(peer_id)
+func load_player(username: String) -> Dictionary:
+	return _backend.load_player(username)
 
 func save_player(player_data: Dictionary) -> void:
 	_backend.save_player(player_data)
 
-func delete_player(peer_id: int) -> void:
-	_backend.delete_player(peer_id)
+func delete_player(username: String) -> void:
+	_backend.delete_player(username)
 
 func wipe_all_players() -> void:
 	_backend.wipe_all_players()
 
-func get_all_player_ids() -> Array:
-	return _backend.get_all_player_ids()
+func get_all_player_usernames() -> Array:
+	return _backend.get_all_player_usernames()
+
+func is_username_taken(username: String) -> bool:
+	return _backend.is_username_taken(username)
 
 # ========== INVENTORY API ==========
-func load_inventory(peer_id: int) -> Array:
-	return _backend.load_inventory(peer_id)
+func load_inventory(username: String) -> Array:
+	return _backend.load_inventory(username)
 
-func save_inventory(peer_id: int, slots: Array) -> void:
-	_backend.save_inventory(peer_id, slots)
+func save_inventory(username: String, slots: Array) -> void:
+	_backend.save_inventory(username, slots)
 
 # ========== STRUCTURE API ==========
 func load_all_structures() -> Array:

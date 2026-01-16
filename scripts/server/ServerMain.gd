@@ -13,6 +13,11 @@ var _enemies: Array = []  # Array of Enemy
 var _walls: Array = []  # Array of Wall
 var _bullets: Array = []  # Array of Bullet
 
+# Username tracking
+var _username_to_peer: Dictionary = {}  # username -> peer_id (runtime)
+var _peer_to_username: Dictionary = {}  # peer_id -> username (runtime)
+var _pending_authentication: Dictionary = {}  # peer_id -> true (waiting for username)
+
 var _last_input: Dictionary = {}  # peer_id -> cmd
 var _last_seq: Dictionary = {}  # peer_id -> int
 var _server_tick: int = 0
@@ -45,6 +50,7 @@ func _ready() -> void:
 	Net.peer_connected.connect(_on_peer_connected)
 	Net.peer_disconnected.connect(_on_peer_disconnected)
 	Net.input_received.connect(_on_input_received)
+	Net.username_received.connect(_on_username_received)  # Handle username auth
 	
 	# Load persisted structures
 	_load_all_structures()
@@ -271,6 +277,7 @@ func _try_build_wall(player: Player, aim_dir: Vector2) -> void:
 	wall.authority = 1
 	wall.global_position = wall_pos
 	wall.builder_id = player.net_id
+	wall.builder_username = player.username
 	wall.destroyed.connect(func(_id): _despawn_wall(wall))
 	_world.add_child(wall)
 	_walls.append(wall)
@@ -300,14 +307,46 @@ func _despawn_wall(wall: Wall) -> void:
 
 
 func _on_peer_connected(peer_id: int) -> void:
-	Log.network("Peer connected: %d, loading data..." % peer_id)
+	"""Mark peer as pending username authentication."""
+	Log.network("Peer %d connected, waiting for username..." % peer_id)
+	_pending_authentication[peer_id] = true
+
+func _on_username_received(peer_id: int, username: String) -> void:
+	"""Validate username and spawn player if valid."""
+	Log.network("Received username '%s' from peer %d" % [username, peer_id])
 	
-	# Load player data from database
-	var data = Persistence.load_player(peer_id)
+	# Validate username
+	var error = UsernameValidator.validate(username)
+	if not error.is_empty():
+		Log.warn("Invalid username from peer %d: %s" % [peer_id, error])
+		Net.client_receive_username_result.rpc_id(peer_id, false, error)
+		return
+	
+	# Normalize username
+	var normalized = UsernameValidator.sanitize(username)
+	
+	# Check if username is already connected
+	if _username_to_peer.has(normalized):
+		Log.warn("Username '%s' already connected" % normalized)
+		Net.client_receive_username_result.rpc_id(peer_id, false, "Username already in use")
+		return
+	
+	# Accept username
+	Log.network("Username '%s' accepted for peer %d" % [normalized, peer_id])
+	_username_to_peer[normalized] = peer_id
+	_peer_to_username[peer_id] = normalized
+	_pending_authentication.erase(peer_id)
+	
+	# Notify client
+	Net.client_receive_username_result.rpc_id(peer_id, true, "Welcome, " + username + "!")
+	
+	# Load player data from database by username
+	var data = Persistence.load_player(normalized)
 	
 	var player = Player.new()
 	player.net_id = peer_id
 	player.authority = 1  # Server authoritative
+	player.username = normalized
 	
 	if data.is_empty():
 		# NEW PLAYER - Default spawn
@@ -317,14 +356,14 @@ func _on_peer_connected(peer_id: int) -> void:
 		)
 		player.global_position = spawn_pos
 		player.health = GameConstants.PLAYER_MAX_HEALTH
-		Log.network("New player %d created at %s" % [peer_id, spawn_pos])
+		Log.network("New player '%s' (peer %d) created at %s" % [normalized, peer_id, spawn_pos])
 	else:
 		# RETURNING PLAYER - Restore state
 		player.global_position = Vector2(data.position_x, data.position_y)
 		player.health = data.get("health", GameConstants.PLAYER_MAX_HEALTH)
 		# TODO: Load level, xp, reputation, currency when systems exist
-		Log.network("Loaded player %d: pos=%s, hp=%.1f" % [
-			peer_id, player.global_position, player.health
+		Log.network("Loaded player '%s' (peer %d): pos=%s, hp=%.1f" % [
+			normalized, peer_id, player.global_position, player.health
 		])
 	
 	_world.add_child(player)
@@ -387,15 +426,26 @@ func _on_peer_connected(peer_id: int) -> void:
 func _on_peer_disconnected(peer_id: int) -> void:
 	Log.network("Peer disconnected: %d, saving data..." % peer_id)
 	
+	# Clean up pending auth if still waiting
+	if _pending_authentication.has(peer_id):
+		_pending_authentication.erase(peer_id)
+		Log.network("Peer %d disconnected before providing username" % peer_id)
+		return
+	
 	if _players.has(peer_id):
 		var player = _players[peer_id]
+		var username = player.username
 		
 		# SAVE ON DISCONNECT
 		_save_player(player)
 		# TODO: Save inventory when system exists
-		# Persistence.save_inventory(player.net_id, player.inventory.get_slots())
+		# Persistence.save_inventory(username, player.inventory.get_slots())
 		
-		Log.network("Saved player %d on disconnect" % peer_id)
+		Log.network("Saved player '%s' (peer %d) on disconnect" % [username, peer_id])
+		
+		# Clean up username mappings
+		_username_to_peer.erase(username)
+		_peer_to_username.erase(peer_id)
 		
 		player.queue_free()
 		_players.erase(peer_id)
@@ -475,7 +525,8 @@ func _spawn_persisted_wall(data: Dictionary) -> void:
 	wall.authority = 1
 	wall.global_position = Vector2(data.position_x, data.position_y)
 	wall.health = data.get("health", 100.0)
-	wall.builder_id = data.get("owner_id", -1)
+	wall.builder_id = -1  # No runtime peer_id (not connected)
+	wall.builder_username = data.get("owner_username", "Unknown")
 	wall.set_meta("structure_id", data.get("id", -1))
 	wall.destroyed.connect(func(_id): _despawn_wall(wall))
 	
@@ -485,8 +536,7 @@ func _spawn_persisted_wall(data: Dictionary) -> void:
 func _save_player(player: Player) -> void:
 	"""Save a player's data to database."""
 	var data = {
-		"peer_id": player.net_id,
-		"name": "Player_%d" % player.net_id,
+		"username": player.username,
 		"position_x": player.global_position.x,
 		"position_y": player.global_position.y,
 		"health": player.health,
@@ -503,7 +553,7 @@ func _save_or_update_structure(wall: Wall) -> void:
 	var structure_id = wall.get_meta("structure_id", -1)
 	
 	var data = {
-		"owner_id": wall.builder_id,
+		"owner_username": wall.builder_username,
 		"type": "wall",
 		"position_x": wall.global_position.x,
 		"position_y": wall.global_position.y,

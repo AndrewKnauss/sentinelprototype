@@ -1,5 +1,42 @@
 # Persistence System
 
+## CRITICAL: Username-Based Identity
+
+**Problem**: Godot's multiplayer peer IDs are session-based and change on every reconnect. Using peer_id as the primary key causes players to lose all progress when they disconnect and reconnect.
+
+**Solution**: Use player-chosen usernames as the persistent identity. The server maintains a runtime mapping of `username <-> peer_id` for the current session, but all database operations use username as the key.
+
+### Identity Flow
+```
+1. Client connects → Godot assigns random peer_id (e.g., 12345)
+2. Client sends username via RPC → "Alice"
+3. Server validates username:
+   - Alphanumeric only, 3-16 characters
+   - Not already connected (no duplicate sessions)
+   - Sanitized (no special chars)
+4. Server maps: username_to_peer["Alice"] = 12345
+               peer_to_username[12345] = "Alice"
+5. Server loads player data by username: "Alice.json"
+6. If username exists → load saved data
+   If username new → create new player
+```
+
+### Username Validation Rules
+- **Length**: 3-16 characters
+- **Characters**: Alphanumeric only (a-z, A-Z, 0-9, underscore)
+- **Uniqueness**: Only one connected session per username at a time
+- **Reserved**: List of admin/system reserved names (optional)
+- **Case-insensitive**: "Alice" and "alice" are the same username
+
+### Connection Args
+```bash
+# Auto-connect with username
+godot4 --path . -- --client --host=127.0.0.1 --auto-connect --username=Alice
+
+# No username provided → show input dialog
+godot4 --path . -- --client --auto-connect
+```
+
 ## Overview
 Abstracted save/load system for player data, inventory, and structures. Designed with a clean API to allow swapping between JSON (prototype) and SQLite (production) implementations without touching game code.
 
@@ -24,24 +61,30 @@ func _ready():
 	_backend.initialize()
 
 # ========== PLAYER API ==========
-func load_player(peer_id: int) -> Dictionary:
-	return _backend.load_player(peer_id)
+func load_player(username: String) -> Dictionary:
+	return _backend.load_player(username)
 
 func save_player(player_data: Dictionary) -> void:
 	_backend.save_player(player_data)
 
-func delete_player(peer_id: int) -> void:
-	_backend.delete_player(peer_id)
+func delete_player(username: String) -> void:
+	_backend.delete_player(username)
 
 func wipe_all_players() -> void:
 	_backend.wipe_all_players()
 
-# ========== INVENTORY API ==========
-func load_inventory(peer_id: int) -> Array:
-	return _backend.load_inventory(peer_id)
+func get_all_player_usernames() -> Array:
+	return _backend.get_all_player_usernames()
 
-func save_inventory(peer_id: int, slots: Array) -> void:
-	_backend.save_inventory(peer_id, slots)
+func is_username_taken(username: String) -> bool:
+	return _backend.is_username_taken(username)
+
+# ========== INVENTORY API ==========
+func load_inventory(username: String) -> Array:
+	return _backend.load_inventory(username)
+
+func save_inventory(username: String, slots: Array) -> void:
+	_backend.save_inventory(username, slots)
 
 # ========== STRUCTURE API ==========
 func load_all_structures() -> Array:
@@ -716,8 +759,7 @@ func _shutdown_server():
 ### Player JSON
 ```json
 {
-	"peer_id": 12345,
-	"name": "Player_12345",
+	"username": "Alice",
 	"position_x": 512.5,
 	"position_y": 384.2,
 	"health": 85.0,
@@ -746,7 +788,7 @@ func _shutdown_server():
 	"structures": [
 		{
 			"id": 1,
-			"owner_id": 12345,
+			"owner_username": "Alice",
 			"type": "wall",
 			"position_x": 600.0,
 			"position_y": 400.0,

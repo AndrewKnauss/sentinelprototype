@@ -40,8 +40,8 @@ func initialize() -> void:
 	print("[JSONPersistence] Initialized: %d structures loaded" % _structures_cache.size())
 
 # ========== PLAYER METHODS ==========
-func load_player(peer_id: int) -> Dictionary:
-	var path = "%s/%d.json" % [PLAYERS_DIR, peer_id]
+func load_player(username: String) -> Dictionary:
+	var path = "%s/%s.json" % [PLAYERS_DIR, username.to_lower()]
 	if not FileAccess.file_exists(path):
 		return {}
 	
@@ -64,12 +64,12 @@ func load_player(peer_id: int) -> Dictionary:
 		return {}
 
 func save_player(player_data: Dictionary) -> void:
-	var peer_id = player_data.get("peer_id", -1)
-	if peer_id < 0:
-		push_error("Invalid peer_id in player_data")
+	var username = player_data.get("username", "")
+	if username.is_empty():
+		push_error("Invalid username in player_data")
 		return
 	
-	var path = "%s/%d.json" % [PLAYERS_DIR, peer_id]
+	var path = "%s/%s.json" % [PLAYERS_DIR, username.to_lower()]
 	var file = FileAccess.open(path, FileAccess.WRITE)
 	if not file:
 		push_error("Failed to open player file for writing: " + path)
@@ -78,13 +78,13 @@ func save_player(player_data: Dictionary) -> void:
 	file.store_string(JSON.stringify(player_data, "\t"))
 	file.close()
 
-func delete_player(peer_id: int) -> void:
-	var path = "%s/%d.json" % [PLAYERS_DIR, peer_id]
+func delete_player(username: String) -> void:
+	var path = "%s/%s.json" % [PLAYERS_DIR, username.to_lower()]
 	if FileAccess.file_exists(path):
 		DirAccess.remove_absolute(path)
 	
 	# Also delete inventory
-	var inv_path = "%s/%d.json" % [INVENTORY_DIR, peer_id]
+	var inv_path = "%s/%s.json" % [INVENTORY_DIR, username.to_lower()]
 	if FileAccess.file_exists(inv_path):
 		DirAccess.remove_absolute(inv_path)
 
@@ -93,23 +93,27 @@ func wipe_all_players() -> void:
 	_wipe_directory(INVENTORY_DIR)
 	print("[JSONPersistence] All player data wiped")
 
-func get_all_player_ids() -> Array:
-	var ids = []
+func get_all_player_usernames() -> Array:
+	var usernames = []
 	var dir = DirAccess.open(PLAYERS_DIR)
 	if dir:
 		dir.list_dir_begin()
 		var file_name = dir.get_next()
 		while file_name != "":
 			if not dir.current_is_dir() and file_name.ends_with(".json"):
-				var peer_id = file_name.trim_suffix(".json").to_int()
-				ids.append(peer_id)
+				var username = file_name.trim_suffix(".json")
+				usernames.append(username)
 			file_name = dir.get_next()
 		dir.list_dir_end()
-	return ids
+	return usernames
+
+func is_username_taken(username: String) -> bool:
+	var path = "%s/%s.json" % [PLAYERS_DIR, username.to_lower()]
+	return FileAccess.file_exists(path)
 
 # ========== INVENTORY METHODS ==========
-func load_inventory(peer_id: int) -> Array:
-	var path = "%s/%d.json" % [INVENTORY_DIR, peer_id]
+func load_inventory(username: String) -> Array:
+	var path = "%s/%s.json" % [INVENTORY_DIR, username.to_lower()]
 	if not FileAccess.file_exists(path):
 		return []
 	
@@ -133,8 +137,8 @@ func load_inventory(peer_id: int) -> Array:
 	
 	return []
 
-func save_inventory(peer_id: int, slots: Array) -> void:
-	var path = "%s/%d.json" % [INVENTORY_DIR, peer_id]
+func save_inventory(username: String, slots: Array) -> void:
+	var path = "%s/%s.json" % [INVENTORY_DIR, username.to_lower()]
 	var file = FileAccess.open(path, FileAccess.WRITE)
 	if not file:
 		push_error("Failed to open inventory file for writing: " + path)
@@ -181,7 +185,7 @@ func wipe_all_structures() -> void:
 
 func get_stats() -> Dictionary:
 	return {
-		"players": get_all_player_ids().size(),
+		"players": get_all_player_usernames().size(),
 		"structures": _structures_cache.size()
 	}
 

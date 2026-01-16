@@ -10,6 +10,7 @@ class_name Player
 var health: float = GameConstants.PLAYER_MAX_HEALTH
 var velocity: Vector2 = Vector2.ZERO
 var is_local: bool = false
+var username: String = ""  # Player's chosen username
 
 var _shoot_cooldown: float = 0.0
 var _dash_timer: float = 0.0  # Active dash time
@@ -50,7 +51,7 @@ func _ready() -> void:
 	add_child(_sprite)
 	
 	_label = Label.new()
-	_label.text = str(net_id)
+	_label.text = username if not username.is_empty() else str(net_id)
 	_label.position = Vector2(-10, -26)
 	_label.scale = Vector2(0.8, 0.8)
 	add_child(_label)
@@ -98,6 +99,10 @@ func _process(delta: float) -> void:
 	_dash_cooldown -= delta
 	_update_health_bar()
 	_update_stamina_bar()
+	
+	# Update label with username
+	if _label and not username.is_empty() and _label.text != username:
+		_label.text = username
 	
 	# Hurt flash effect
 	if _hurt_flash_timer > 0.0:
@@ -201,7 +206,8 @@ func get_replicated_state() -> Dictionary:
 		"h": health,
 		"v": velocity,
 		"s": stamina,
-		"w": weapon_state
+		"w": weapon_state,
+		"u": username
 	}
 
 
@@ -221,6 +227,13 @@ func apply_replicated_state(state: Dictionary) -> void:
 	# Apply weapon state
 	if equipped_weapon and state.has("w"):
 		equipped_weapon.apply_state(state["w"])
+	
+	# Apply username and update label if changed
+	var new_username = state.get("u", "")
+	if new_username != username:
+		username = new_username
+		if _label:
+			_label.text = username if not username.is_empty() else str(net_id)
 
 
 func _update_health_bar() -> void:

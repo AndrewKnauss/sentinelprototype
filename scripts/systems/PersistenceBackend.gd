@@ -7,29 +7,33 @@ func initialize() -> void:
 	push_error("PersistenceBackend.initialize() not implemented")
 
 # ========== PLAYER API ==========
-func load_player(peer_id: int) -> Dictionary:
+func load_player(username: String) -> Dictionary:
 	push_error("PersistenceBackend.load_player() not implemented")
 	return {}
 
 func save_player(player_data: Dictionary) -> void:
 	push_error("PersistenceBackend.save_player() not implemented")
 
-func delete_player(peer_id: int) -> void:
+func delete_player(username: String) -> void:
 	push_error("PersistenceBackend.delete_player() not implemented")
 
 func wipe_all_players() -> void:
 	push_error("PersistenceBackend.wipe_all_players() not implemented")
 
-func get_all_player_ids() -> Array:
-	push_error("PersistenceBackend.get_all_player_ids() not implemented")
+func get_all_player_usernames() -> Array:
+	push_error("PersistenceBackend.get_all_player_usernames() not implemented")
 	return []
 
+func is_username_taken(username: String) -> bool:
+	push_error("PersistenceBackend.is_username_taken() not implemented")
+	return false
+
 # ========== INVENTORY API ==========
-func load_inventory(peer_id: int) -> Array:
+func load_inventory(username: String) -> Array:
 	push_error("PersistenceBackend.load_inventory() not implemented")
 	return []
 
-func save_inventory(peer_id: int, slots: Array) -> void:
+func save_inventory(username: String, slots: Array) -> void:
 	push_error("PersistenceBackend.save_inventory() not implemented")
 
 # ========== STRUCTURE API ==========

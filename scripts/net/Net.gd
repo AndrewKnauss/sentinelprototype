@@ -20,6 +20,8 @@ signal despawn_received(peer_id: int)
 signal snapshot_received(snap: Dictionary)
 signal ack_received(ack: Dictionary)
 signal static_snapshot_received(states: Dictionary)
+signal username_received(peer_id: int, username: String)  # Server receives username from client
+signal username_accepted(success: bool, message: String)  # Client receives validation result
 
 var _sm: SceneMultiplayer = null
 
@@ -221,3 +223,22 @@ func despawn_entity(net_id: int) -> void:
 		Log.entity("Despawning entity %d" % net_id)
 		entity.queue_free()
 	# Silently ignore if not found - likely short-lived entity (bullet)
+
+
+# ========== USERNAME SYSTEM ==========
+@rpc("any_peer", "reliable")
+func server_receive_username(username: String) -> void:
+	"""Client sends username to server for validation."""
+	if not is_server():
+		return
+	
+	var peer_id = _sm.get_remote_sender_id()
+	username_received.emit(peer_id, username)
+
+@rpc("any_peer", "reliable")
+func client_receive_username_result(success: bool, message: String) -> void:
+	"""Server sends validation result back to client."""
+	if is_server():
+		return
+	
+	username_accepted.emit(success, message)

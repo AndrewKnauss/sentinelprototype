@@ -42,6 +42,8 @@ var _world: Node2D
 var _players: Dictionary = {}  # peer_id -> Player
 var _my_id: int = 0
 var _camera: Camera2D
+var _username_dialog: UsernameDialog = null
+var _username: String = ""  # Player's chosen username
 
 # Prediction
 var _input_seq: int = 0
@@ -146,12 +148,14 @@ func _ready() -> void:
 	Net.client_connected.connect(func(id): 
 		_my_id = id
 		Log.network("My ID is %d" % id)
+		_show_username_dialog()  # Prompt for username after connection
 	)
 	Net.spawn_received.connect(_on_spawn_player)
 	Net.despawn_received.connect(_on_despawn_player)
 	Net.snapshot_received.connect(_on_snapshot)
 	Net.ack_received.connect(_on_ack)
 	Net.static_snapshot_received.connect(_on_static_snapshot)
+	Net.username_accepted.connect(_on_username_result)  # Handle server validation
 
 # Main client tick: Predict local player, interpolate remote entities
 func _physics_process(_delta: float) -> void:
@@ -636,3 +640,41 @@ func _update_ammo_hud(player: Player) -> void:
 	if weapon.is_reloading:
 		var reload_pct = int((1.0 - weapon.reload_timer / weapon.data.reload_time) * 100)
 		_ammo_label.text += " [RELOADING %d%%]" % reload_pct
+
+
+# ========== USERNAME SYSTEM ==========
+func _show_username_dialog() -> void:
+	"""Show username input dialog after connecting to server."""
+	# Check if username was provided via command line
+	var args = OS.get_cmdline_user_args()
+	for arg in args:
+		if arg.begins_with("--username="):
+			_username = arg.substr("--username=".length())
+			Log.network("Using username from command line: %s" % _username)
+			Net.server_receive_username.rpc_id(1, _username)
+			return
+	
+	# No username provided - show dialog
+	_username_dialog = UsernameDialog.new()
+	_username_dialog.username_submitted.connect(_on_username_submitted)
+	add_child(_username_dialog)
+
+func _on_username_submitted(username: String) -> void:
+	"""Send username to server for validation."""
+	_username = username
+	Log.network("Submitting username: %s" % username)
+	Net.server_receive_username.rpc_id(1, username)
+
+func _on_username_result(success: bool, message: String) -> void:
+	"""Handle server's validation response."""
+	Log.network("Username result: %s - %s" % ["Success" if success else "Failed", message])
+	
+	if _username_dialog:
+		_username_dialog.show_result(success, message)
+		
+		if success:
+			# Hide dialog after short delay
+			await get_tree().create_timer(1.0).timeout
+			if _username_dialog:
+				_username_dialog.queue_free()
+				_username_dialog = null
