@@ -33,7 +33,7 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	super._physics_process(delta)
 	
-	if not is_authority():
+	if not net_entity.is_authority():
 		return
 	
 	_charge_cooldown -= delta
@@ -70,7 +70,8 @@ func _ai_chase_and_shoot(delta: float) -> void:
 	else:
 		velocity = to_player.normalized() * TANK_SPEED
 	
-	global_position += velocity * delta
+	# Move with collision
+	move_and_slide()
 	
 	# Melee-focused attacks
 	if dist < 80 and _shoot_cooldown <= 0:

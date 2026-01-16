@@ -174,7 +174,7 @@ func spawn_entity(data: Dictionary) -> void:
 	var pos = data.get("pos", Vector2.ZERO)
 	var extra = data.get("extra", {})
 	
-	var entity: NetworkedEntity = null
+	var entity: Node2D = null  # Changed from NetworkedEntity to Node2D
 	
 	match type:
 		"bullet":

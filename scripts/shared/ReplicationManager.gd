@@ -7,15 +7,15 @@ extends Node
 # Automatically builds snapshots and applies them.
 # =============================================================================
 
-# All registered entities
-var _entities: Dictionary = {}  # net_id -> NetworkedEntity
+# All registered entities (component-based)
+var _entities: Dictionary = {}  # net_id -> NetworkedEntity component
 
 # Next ID for server-spawned entities (players use peer_id)
 var _next_id: int = 10000
 
 
-func register(entity: NetworkedEntity) -> void:
-	"""Register an entity for replication."""
+func register_entity(entity: NetworkedEntity) -> void:
+	"""Register a NetworkedEntity component for replication."""
 	if entity.net_id == 0:
 		push_error("Entity registered with net_id 0!")
 		return
@@ -23,19 +23,25 @@ func register(entity: NetworkedEntity) -> void:
 	_entities[entity.net_id] = entity
 
 
-func unregister(net_id: int) -> void:
-	"""Unregister an entity."""
+func unregister_entity(net_id: int) -> void:
+	"""Unregister an entity component."""
 	_entities.erase(net_id)
 
 
-func get_entity(net_id: int) -> NetworkedEntity:
-	"""Get entity by net_id."""
-	return _entities.get(net_id)
+func get_entity(net_id: int) -> Node2D:
+	"""Get entity node by net_id."""
+	var component = _entities.get(net_id)
+	if component:
+		return component.owner_node
+	return null
 
 
 func get_all_entities() -> Array:
-	"""Get all registered entities."""
-	return _entities.values()
+	"""Get all registered entity nodes."""
+	var nodes = []
+	for component in _entities.values():
+		nodes.append(component.owner_node)
+	return nodes
 
 
 func generate_id() -> int:

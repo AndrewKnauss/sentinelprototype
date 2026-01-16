@@ -1,32 +1,24 @@
-extends Node2D
+extends NetworkedEntity
 class_name Bullet
 
 # =============================================================================
-# Bullet.gd - REFACTORED (stays as Node2D)
+# Bullet.gd
 # =============================================================================
 # Event-based projectile. Server sends spawn event, clients simulate locally.
-# Uses raycasting for collision, not physics bodies.
 # =============================================================================
 
-# Networking component
-var net_entity: NetworkedEntity = null
-var net_id: int = 0
-var authority: int = 1
-
-# Bullet state
 var velocity: Vector2 = Vector2.ZERO
-var owner_id: int = 0
-var damage: float = GameConstants.BULLET_DAMAGE
+var owner_id: int = 0  # Who fired this bullet
+var damage: float = GameConstants.BULLET_DAMAGE  # Damage dealt
 var lifetime: float = GameConstants.BULLET_LIFETIME
 
-# Visuals
 var _sprite: Sprite2D
 static var _shared_tex: Texture2D = null
 
 
 func _ready() -> void:
-	# Create networking component
-	net_entity = NetworkedEntity.new(self, net_id, authority, "bullet")
+	super._ready()
+	entity_type = "bullet"
 	
 	# Create shared texture once
 	if _shared_tex == null:
@@ -38,11 +30,6 @@ func _ready() -> void:
 	_sprite.texture = _shared_tex
 	_sprite.centered = true
 	add_child(_sprite)
-
-
-func _exit_tree() -> void:
-	if net_entity:
-		net_entity.unregister()
 
 
 func _physics_process(delta: float) -> void:
@@ -102,9 +89,9 @@ func _check_collision() -> bool:
 		var result = space.intersect_ray(query)
 		if result:
 			var collider = result.get("collider")
-			# Collider IS the Wall (StaticBody2D)
-			if collider is Wall:
-				_on_hit_wall(collider)
+			if collider and collider.get_parent() is Wall:
+				var wall = collider.get_parent() as Wall
+				_on_hit_wall(wall)
 				return true
 	
 	# Check player collision (circle collision)
@@ -134,27 +121,44 @@ func _check_collision() -> bool:
 func _on_hit_wall(wall: Wall) -> void:
 	"""Handle wall collision."""
 	if Net.is_server():
+		# Server: Apply damage
 		if wall.take_damage(damage):
-			pass  # Wall destroyed
+			# Wall destroyed - it will emit destroyed signal
+			pass
+		# Tell clients to despawn this bullet
 		Net.despawn_entity.rpc(net_id)
+	else:
+		# Client: Just despawn visually (server is authoritative)
+		pass
 
 
 func _on_hit_player(player: Player) -> void:
 	"""Handle player collision."""
 	if Net.is_server():
+		# Server: Apply damage
 		if player.take_damage(damage):
-			# Player killed - respawn
+			# Player killed - need to respawn
 			var spawn_pos = Vector2(
 				randf_range(GameConstants.SPAWN_MIN.x, GameConstants.SPAWN_MAX.x),
 				randf_range(GameConstants.SPAWN_MIN.y, GameConstants.SPAWN_MAX.y)
 			)
 			player.respawn(spawn_pos)
+		# Tell clients to despawn this bullet
 		Net.despawn_entity.rpc(net_id)
+	else:
+		# Client: Just despawn visually (server is authoritative for damage)
+		pass
 
 
 func _on_hit_enemy(enemy: Enemy) -> void:
 	"""Handle enemy collision."""
 	if Net.is_server():
+		# Server: Apply damage with attacker ID
 		if enemy.take_damage(damage, owner_id):
-			pass  # Enemy died
+			# Enemy killed - it will emit died signal which ServerMain handles
+			pass
+		# Tell clients to despawn this bullet
 		Net.despawn_entity.rpc(net_id)
+	else:
+		# Client: Just despawn visually (server is authoritative for damage)
+		pass

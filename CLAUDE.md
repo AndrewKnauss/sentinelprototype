@@ -194,7 +194,17 @@ run_client_local.bat     # Single client → localhost
 
 ## Recent Changes
 
-**Session #5 - Collision System (Phase 1)**:
+**Session #5 - Collision System (Phase 1) + Component Refactor**:
+- **MAJOR REFACTOR**: Changed from inheritance to component pattern
+  - `NetworkedEntity` is now a RefCounted component (not Node2D base class)
+  - Entities extend their proper physics bodies directly:
+    - `Player` extends `CharacterBody2D`
+    - `Enemy` extends `CharacterBody2D`
+    - `Wall` extends `StaticBody2D`
+    - `Bullet` extends `Node2D` (uses raycasting)
+  - Each entity holds a `net_entity` component for replication
+  - Movement uses native `move_and_slide()` - clean and simple
+  - **NO MORE POSITION SYNCING** - entities are their physics bodies
 - **Wall collision blocking** (walls now block player/enemy movement)
 - **Collision layers** properly configured:
   - Layer 1 (STATIC): Walls and structures
@@ -203,11 +213,7 @@ run_client_local.bat     # Single client → localhost
   - Layer 4 (PROJECTILE): Bullets (raycast-based)
 - **Wall sliding** (players/enemies slide along walls instead of stopping)
 - **Phase-through behavior** (players can walk through enemies, prevents body-blocking)
-- **CRITICAL FIX**: Corrected position sync pattern to prevent teleporting
-  - Child collision body always stays at (0,0) relative to parent
-  - Parent accumulates movement delta: `global_position += _collision_body.position`
-  - Reset child after each move: `_collision_body.position = Vector2.ZERO`
-  - Previous pattern (`global_position = _collision_body.global_position`) caused feedback loop
+- **Bug fix**: Eliminated teleporting/circular movement caused by parent-child position feedback
 - Design doc created: `docs/systems/COLLISION.md` (covers future FOG, sound, interaction)
 
 **Session #4 - Database Persistence + Username System**:

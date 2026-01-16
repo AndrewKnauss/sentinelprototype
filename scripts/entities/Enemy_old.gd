@@ -1,11 +1,11 @@
-extends CharacterBody2D
+extends NetworkedEntity
 class_name Enemy
 
 # =============================================================================
-# Enemy.gd - REFACTORED TO EXTEND CharacterBody2D
+# Enemy.gd
 # =============================================================================
-# AI-controlled enemy that moves and shoots at players.
-# Server-authoritative only. Uses NetworkedEntity component for replication.
+# AI-controlled enemy that moves slowly and shoots at players.
+# Server-authoritative only.
 # =============================================================================
 
 signal died(enemy_id: int)
@@ -13,56 +13,52 @@ signal wants_to_shoot(direction: Vector2)
 
 enum State { CHASE, WANDER, SEPARATE }
 
-# Networking component
-var net_entity: NetworkedEntity = null
-var net_id: int = 0
-var authority: int = 1
-
-# Enemy stats
 var health: float = GameConstants.ENEMY_MAX_HEALTH
+var velocity: Vector2 = Vector2.ZERO
 var target_player: Player = null
 
 # Aggro tracking
-var _damage_taken: Dictionary = {}
+var _damage_taken: Dictionary = {}  # player_id -> damage_dealt
 var _aggro_target: Player = null
-var _aggro_lock_time: float = 0.0
+var _aggro_lock_time: float = 0.0  # Time to stick to current target
 
-# AI state
 var _state: State = State.WANDER
 var _state_timer: float = 0.0
 var _shoot_cooldown: float = 0.0
 var _wander_timer: float = 0.0
 var _wander_target: Vector2 = Vector2.ZERO
 
-# Visuals
 var _sprite: Sprite2D
 var _health_bar: ColorRect
 var _hurt_flash_timer: float = 0.0
 var _base_color: Color = Color.DARK_RED  # Child classes can override
+var _collision_body: CharacterBody2D  # For collision detection
 static var _shared_tex: Texture2D = null
 
 
 func _ready() -> void:
-	# Create networking component
-	net_entity = NetworkedEntity.new(self, net_id, authority, "enemy")
+	super._ready()
+	entity_type = "enemy"
 	
-	# Setup collision
-	collision_layer = 4      # Layer 3 = ENEMY (bit value 4)
-	collision_mask = 1 | 4   # Collide with STATIC + ENEMY
+	# Create collision body as child
+	_collision_body = CharacterBody2D.new()
+	_collision_body.collision_layer = 4      # Layer 3 = ENEMY (bit value 4)
+	_collision_body.collision_mask = 1 | 4   # Collide with STATIC (walls) + ENEMY
+	add_child(_collision_body)
 	
 	# Add collision shape
-	var shape_node = CollisionShape2D.new()
+	var shape = CollisionShape2D.new()
 	var circle = CircleShape2D.new()
-	circle.radius = 10.0
-	shape_node.shape = circle
-	add_child(shape_node)
+	circle.radius = 10.0  # Enemy collision radius (slightly bigger than player)
+	shape.shape = circle
+	_collision_body.add_child(shape)
 	
 	Log.entity("Enemy _ready: _base_color = %s" % _base_color)
 	
 	# Create shared texture once
 	if _shared_tex == null:
 		var img = Image.create(20, 20, false, Image.FORMAT_RGBA8)
-		img.fill(Color.WHITE)
+		img.fill(Color.WHITE)  # WHITE texture so modulation works
 		_shared_tex = ImageTexture.create_from_image(img)
 	
 	_sprite = Sprite2D.new()
@@ -81,12 +77,7 @@ func _ready() -> void:
 	add_child(_health_bar)
 	
 	_pick_new_wander_target()
-	_state_timer = randf_range(8.0, 12.0)
-
-
-func _exit_tree() -> void:
-	if net_entity:
-		net_entity.unregister()
+	_state_timer = randf_range(8.0, 12.0)  # Random initial timer
 
 
 func _physics_process(delta: float) -> void:
@@ -100,7 +91,7 @@ func _physics_process(delta: float) -> void:
 	else:
 		_sprite.modulate = _base_color
 	
-	if not net_entity.is_authority():
+	if not is_authority():
 		return  # Only server controls AI
 	
 	_shoot_cooldown -= delta
@@ -131,11 +122,13 @@ func _physics_process(delta: float) -> void:
 
 func _transition_to_next_state() -> void:
 	"""Transition between states based on situation."""
+	# Check if too close to other enemies
 	if _is_crowded():
 		_state = State.SEPARATE
 		_state_timer = randf_range(3.0, 5.0)
 		return
 	
+	# Otherwise alternate between chase and wander
 	if target_player and _state != State.CHASE:
 		_state = State.CHASE
 		_state_timer = randf_range(8.0, 12.0)
@@ -151,7 +144,7 @@ func _is_crowded() -> bool:
 	for entity in Replication.get_all_entities():
 		if entity is Enemy and entity != self:
 			var dist = global_position.distance_to(entity.global_position)
-			if dist < 60:
+			if dist < 60:  # Too close threshold
 				nearby_count += 1
 				if nearby_count >= 2:
 					return true
@@ -169,7 +162,27 @@ func _ai_chase_and_shoot(delta: float) -> void:
 	# Move toward player (with some spacing)
 	if dist > 200:
 		velocity = to_player.normalized() * GameConstants.ENEMY_MOVE_SPEED
-		move_and_slide()
+		
+		# Calculate motion
+		var motion = velocity * delta
+		
+		# Test collision
+		_collision_body.velocity = velocity
+		var collision = _collision_body.move_and_collide(motion)
+		
+		if collision:
+			# Slide along walls
+			var slide_velocity = velocity.slide(collision.get_normal())
+			var slide_motion = slide_velocity * delta
+			_collision_body.move_and_collide(slide_motion)
+			
+			# Apply child's movement to parent
+			global_position += _collision_body.position
+			_collision_body.position = Vector2.ZERO
+		else:
+			# No collision - apply full movement to parent
+			global_position += motion
+			_collision_body.position = Vector2.ZERO
 	else:
 		velocity = Vector2.ZERO
 	
@@ -187,7 +200,28 @@ func _ai_wander(delta: float) -> void:
 	var to_target = _wander_target - global_position
 	if to_target.length() > 10:
 		velocity = to_target.normalized() * (GameConstants.ENEMY_MOVE_SPEED * 0.5)
-		move_and_slide()
+		
+		# Calculate motion
+		var motion = velocity * delta
+		
+		# Test collision
+		_collision_body.velocity = velocity
+		var collision = _collision_body.move_and_collide(motion)
+		
+		if collision:
+			# Slide along walls
+			var slide_velocity = velocity.slide(collision.get_normal())
+			var slide_motion = slide_velocity * delta
+			_collision_body.move_and_collide(slide_motion)
+			
+			# Apply child's movement to parent
+			global_position += _collision_body.position
+			_collision_body.position = Vector2.ZERO
+		else:
+			# No collision - apply full movement to parent
+			global_position += motion
+			_collision_body.position = Vector2.ZERO
+		
 		rotation = to_target.angle()
 	else:
 		velocity = Vector2.ZERO
@@ -202,16 +236,38 @@ func _ai_separate(delta: float) -> void:
 		if entity is Enemy and entity != self:
 			var to_other = global_position - entity.global_position
 			var dist = to_other.length()
-			if dist < 100:
+			if dist < 100:  # Separation radius
 				separation += to_other.normalized() / max(dist, 0.1)
 				count += 1
 	
 	if count > 0:
 		separation = separation.normalized()
 		velocity = separation * GameConstants.ENEMY_MOVE_SPEED
-		move_and_slide()
+		
+		# Calculate motion
+		var motion = velocity * delta
+		
+		# Test collision
+		_collision_body.velocity = velocity
+		var collision = _collision_body.move_and_collide(motion)
+		
+		if collision:
+			# Slide along walls
+			var slide_velocity = velocity.slide(collision.get_normal())
+			var slide_motion = slide_velocity * delta
+			_collision_body.move_and_collide(slide_motion)
+			
+			# Apply child's movement to parent
+			global_position += _collision_body.position
+			_collision_body.position = Vector2.ZERO
+		else:
+			# No collision - apply full movement to parent
+			global_position += motion
+			_collision_body.position = Vector2.ZERO
+		
 		rotation = separation.angle()
 	else:
+		# No enemies nearby, go back to wandering
 		_state = State.WANDER
 		_state_timer = randf_range(5.0, 8.0)
 
@@ -243,6 +299,7 @@ func _get_aggro_target() -> Player:
 	
 	# If we have a locked aggro target and they're still valid
 	if _aggro_lock_time > 0.0 and _aggro_target and is_instance_valid(_aggro_target):
+		# Keep locked unless they're too far away
 		var dist = global_position.distance_to(_aggro_target.global_position)
 		if dist < GameConstants.ENEMY_AGGRO_RANGE:
 			return _aggro_target
@@ -258,22 +315,25 @@ func _get_aggro_target() -> Player:
 	for player_id in _damage_taken:
 		var damage = _damage_taken[player_id]
 		if damage > top_damage:
+			# Find the player entity
 			for entity in Replication.get_all_entities():
 				if entity is Player and entity.net_id == player_id:
 					top_damage = damage
 					top_attacker = entity
 					break
 	
+	# If someone has damaged us, target them
 	if top_attacker:
 		return top_attacker
 	
+	# Otherwise, find nearest player
 	return _find_nearest_player()
 
 
 func take_damage(amount: float, attacker_id: int = 0) -> bool:
 	"""Apply damage. Returns true if killed."""
 	health -= amount
-	_hurt_flash_timer = 0.2
+	_hurt_flash_timer = 0.2  # Flash white for 0.2 seconds
 	
 	# Track damage for aggro
 	if attacker_id > 0:
@@ -287,10 +347,11 @@ func take_damage(amount: float, attacker_id: int = 0) -> bool:
 				_aggro_target = entity
 				_aggro_lock_time = GameConstants.ENEMY_AGGRO_LOCK_TIME
 				
-				# Immediately switch to chase
+				# IMMEDIATELY switch to chase state when taking damage
 				if _state != State.CHASE:
 					_state = State.CHASE
 					_state_timer = randf_range(8.0, 12.0)
+				
 				break
 	
 	if health <= 0:
@@ -313,10 +374,10 @@ func apply_replicated_state(state: Dictionary) -> void:
 	global_position = state.get("p", global_position)
 	rotation = state.get("r", rotation)
 	
-	# Check if health decreased
+	# Check if health decreased (took damage)
 	var new_health = state.get("h", health)
 	if new_health < health:
-		_hurt_flash_timer = 0.2
+		_hurt_flash_timer = 0.2  # Trigger flash on damage
 	health = new_health
 	
 	velocity = state.get("v", velocity)

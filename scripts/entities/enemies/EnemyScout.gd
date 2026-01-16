@@ -45,7 +45,8 @@ func _ai_chase_and_shoot(delta: float) -> void:
 			strafe_dir = -strafe_dir
 		velocity = strafe_dir * SCOUT_SPEED * 0.7
 	
-	global_position += velocity * delta
+	# Move with collision
+	move_and_slide()
 	
 	# Shoot frequently at long range
 	if dist < SCOUT_RANGE and _shoot_cooldown <= 0:

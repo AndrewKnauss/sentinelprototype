@@ -1,49 +1,33 @@
-extends StaticBody2D
+extends NetworkedEntity
 class_name Wall
 
 # =============================================================================
-# Wall.gd - REFACTORED TO EXTEND StaticBody2D
+# Wall.gd
 # =============================================================================
-# Buildable wall structure that blocks bullets and movement.
-# Uses NetworkedEntity component for replication.
+# Buildable wall structure that blocks bullets.
+# Uses StaticBody2D for collision detection.
 # =============================================================================
 
 signal destroyed(wall_id: int)
 
-# Networking component
-var net_entity: NetworkedEntity = null
-var net_id: int = 0
-var authority: int = 1
-
-# Wall stats
 var health: float = GameConstants.WALL_MAX_HEALTH
-var builder_id: int = 0
-var builder_username: String = ""
+var builder_id: int = 0  # Who built this wall (runtime peer_id)
+var builder_username: String = ""  # Builder's username (for persistence)
 
-# Visuals
 var _sprite: ColorRect
 var _health_bar: ColorRect
+var _collision: StaticBody2D
+var _shape: CollisionShape2D
 
 
 func _ready() -> void:
-	# Create networking component
-	net_entity = NetworkedEntity.new(self, net_id, authority, "wall")
-	
-	# Setup collision
-	collision_layer = 1   # Layer 1 = STATIC
-	collision_mask = 0    # Walls don't move
-	
-	# Add collision shape
-	var shape_node = CollisionShape2D.new()
-	var rect = RectangleShape2D.new()
-	rect.size = GameConstants.WALL_SIZE
-	shape_node.shape = rect
-	add_child(shape_node)
+	super._ready()
+	entity_type = "wall"
 	
 	# Visual
 	_sprite = ColorRect.new()
 	_sprite.size = GameConstants.WALL_SIZE
-	_sprite.position = -GameConstants.WALL_SIZE / 2
+	_sprite.position = -GameConstants.WALL_SIZE / 2  # Center it
 	_sprite.color = Color(0.5, 0.5, 0.5, 0.8)
 	add_child(_sprite)
 	
@@ -53,11 +37,18 @@ func _ready() -> void:
 	_health_bar.position = Vector2(-GameConstants.WALL_SIZE.x / 2, -GameConstants.WALL_SIZE.y / 2 - 8)
 	_health_bar.color = Color.CYAN
 	add_child(_health_bar)
-
-
-func _exit_tree() -> void:
-	if net_entity:
-		net_entity.unregister()
+	
+	# Collision (blocks bullets and movement)
+	_collision = StaticBody2D.new()
+	_collision.collision_layer = 1  # Layer 1 = STATIC (walls, terrain)
+	_collision.collision_mask = 0   # Walls don't move, no collision checks needed
+	add_child(_collision)
+	
+	_shape = CollisionShape2D.new()
+	var rect = RectangleShape2D.new()
+	rect.size = GameConstants.WALL_SIZE
+	_shape.shape = rect
+	_collision.add_child(_shape)
 
 
 func _process(_delta: float) -> void:

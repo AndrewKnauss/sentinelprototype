@@ -357,9 +357,10 @@ func _interpolate_all_entities() -> void:
 #Interpolate a single entity's position/rotation between two snapshots.
 #Finds the two snapshots surrounding render_tick, calculates interpolation factor,
 #and smoothly lerps position and rotation. Non-interpolated values (health) applied directly.
-func _interpolate_entity(entity: NetworkedEntity, render_tick: int) -> void:
-
-	var buf = _snap_buffers.get(entity.net_id, [])
+func _interpolate_entity(entity: Node2D, render_tick: int) -> void:
+	# Get net_id from entity (entities have net_id property directly)
+	var net_id = entity.net_id
+	var buf = _snap_buffers.get(net_id, [])
 	if buf.size() < 2:
 		return
 	

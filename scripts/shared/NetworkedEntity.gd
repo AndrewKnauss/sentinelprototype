@@ -1,12 +1,13 @@
-extends Node2D
-class_name NetworkedEntity
+# =============================================================================
+# NetworkedEntity.gd - REFACTORED TO COMPONENT PATTERN
+# =============================================================================
+# Component that provides networking/replication functionality to entities.
+# Entities extend their proper physics body type (CharacterBody2D, StaticBody2D, etc.)
+# and hold this as a component for network sync.
+# =============================================================================
 
-# =============================================================================
-# NetworkedEntity.gd
-# =============================================================================
-# Base class for all replicated entities (players, enemies, bullets, walls).
-# Handles automatic registration with ReplicationManager.
-# =============================================================================
+class_name NetworkedEntity
+extends RefCounted
 
 # Unique network ID (peer_id for players, generated for others)
 var net_id: int = 0
@@ -17,39 +18,65 @@ var authority: int = 1
 # Entity type for spawn/despawn messages
 var entity_type: String = "unknown"
 
+# Reference to the actual entity node
+var owner_node: Node2D = null
 
-func _ready() -> void:
+
+func _init(node: Node2D, id: int, auth: int = 1, ent_type: String = "unknown") -> void:
+	owner_node = node
+	net_id = id
+	authority = auth
+	entity_type = ent_type
+	
 	# Register with replication system
-	if has_node("/root/Replication"):
-		get_node("/root/Replication").register(self)
+	register()
 
 
-func _exit_tree() -> void:
-	# Unregister when removed
-	if has_node("/root/Replication"):
-		get_node("/root/Replication").unregister(net_id)
+func register() -> void:
+	"""Register this entity with the replication manager."""
+	if Engine.has_singleton("Replication"):
+		return  # Autoload singletons use different access
+	
+	var replication = owner_node.get_node_or_null("/root/Replication")
+	if replication:
+		replication.register_entity(self)
 
 
-# Override in subclasses to define what gets replicated
+func unregister() -> void:
+	"""Unregister this entity from the replication manager."""
+	var replication = owner_node.get_node_or_null("/root/Replication")
+	if replication:
+		replication.unregister_entity(net_id)
+
+
 func get_replicated_state() -> Dictionary:
+	"""Get state to replicate. Delegates to owner node if it has the method."""
+	if owner_node.has_method("get_replicated_state"):
+		return owner_node.get_replicated_state()
+	
+	# Default: just position and rotation
 	return {
-		"p": global_position,
-		"r": rotation
+		"p": owner_node.global_position,
+		"r": owner_node.rotation
 	}
 
 
-# Override in subclasses to apply replicated state
 func apply_replicated_state(state: Dictionary) -> void:
-	global_position = state.get("p", global_position)
-	rotation = state.get("r", rotation)
+	"""Apply replicated state. Delegates to owner node if it has the method."""
+	if owner_node.has_method("apply_replicated_state"):
+		owner_node.apply_replicated_state(state)
+	else:
+		# Default: apply position and rotation
+		owner_node.global_position = state.get("p", owner_node.global_position)
+		owner_node.rotation = state.get("r", owner_node.rotation)
 
 
-# Check if this peer has authority over this entity
 func is_authority() -> bool:
-	if not has_node("/root/Net"):
+	"""Check if this peer has authority over this entity."""
+	var net = owner_node.get_node_or_null("/root/Net")
+	if not net:
 		return false
 	
-	var net = get_node("/root/Net")
 	if net.is_server():
 		return authority == 1
 	else:

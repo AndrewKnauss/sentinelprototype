@@ -37,7 +37,7 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	super._physics_process(delta)
 	
-	if not is_authority():
+	if not net_entity.is_authority():
 		# Client needs to check aiming timer
 		if _is_aiming:
 			_aim_timer -= delta
@@ -62,7 +62,7 @@ func _physics_process(delta: float) -> void:
 	else:
 		_laser_line.visible = false
 	
-	if is_authority() and _is_aiming:
+	if net_entity.is_authority() and _is_aiming:
 		_aim_timer -= delta
 
 
@@ -78,12 +78,12 @@ func _ai_chase_and_shoot(delta: float) -> void:
 		# Too far - approach slowly
 		_in_position = false
 		velocity = to_player.normalized() * SNIPER_SPEED
-		global_position += velocity * delta
+		move_and_slide()
 	elif dist < 300:
 		# Too close - back away
 		_in_position = false
 		velocity = -to_player.normalized() * SNIPER_SPEED
-		global_position += velocity * delta
+		move_and_slide()
 	else:
 		# Good range - stay still
 		_in_position = true

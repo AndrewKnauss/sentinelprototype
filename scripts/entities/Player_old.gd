@@ -1,58 +1,54 @@
-extends CharacterBody2D
+extends NetworkedEntity
 class_name Player
 
 # =============================================================================
-# Player.gd - REFACTORED TO EXTEND CharacterBody2D
+# Player.gd
 # =============================================================================
 # Networked player entity with movement, shooting, and building.
-# Uses NetworkedEntity component for replication.
 # =============================================================================
 
-# Networking component
-var net_entity: NetworkedEntity = null
-var net_id: int = 0
-var authority: int = 1
-var is_local: bool = false
-
-# Player stats
 var health: float = GameConstants.PLAYER_MAX_HEALTH
-var username: String = ""
+var velocity: Vector2 = Vector2.ZERO
+var is_local: bool = false
+var username: String = ""  # Player's chosen username
+
+var _shoot_cooldown: float = 0.0
+var _dash_timer: float = 0.0  # Active dash time
+var _dash_cooldown: float = 0.0  # Time until next dash
+var _dash_direction: Vector2 = Vector2.ZERO  # Direction of current dash
 var stamina: float = GameConstants.PLAYER_STAMINA_MAX
 var is_sprinting: bool = false
 
-# Movement state
-var _dash_timer: float = 0.0
-var _dash_cooldown: float = 0.0
-var _dash_direction: Vector2 = Vector2.ZERO
-
 # Weapon system
 var equipped_weapon: Weapon = null
-var inventory_weapons: Array = []
+var inventory_weapons: Array = []  # Up to 3 weapons
 
-# Visuals
 var _sprite: Sprite2D
 var _label: Label
 var _health_bar: ColorRect
 var _stamina_bar: ColorRect
 var _hurt_flash_timer: float = 0.0
+var _collision_body: CharacterBody2D  # For collision detection
 
 static var _shared_tex: Texture2D = null
 
 
 func _ready() -> void:
-	# Create networking component
-	net_entity = NetworkedEntity.new(self, net_id, authority, "player")
+	super._ready()
+	entity_type = "player"
 	
-	# Setup collision
-	collision_layer = 2      # Layer 2 = PLAYER
-	collision_mask = 1 | 2   # Collide with STATIC + PLAYER
+	# Create collision body as child
+	_collision_body = CharacterBody2D.new()
+	_collision_body.collision_layer = 2      # Layer 2 = PLAYER
+	_collision_body.collision_mask = 1 | 2   # Collide with STATIC (walls) + PLAYER
+	add_child(_collision_body)
 	
 	# Add collision shape
-	var shape_node = CollisionShape2D.new()
+	var shape = CollisionShape2D.new()
 	var circle = CircleShape2D.new()
-	circle.radius = 8.0
-	shape_node.shape = circle
-	add_child(shape_node)
+	circle.radius = 8.0  # Player collision radius
+	shape.shape = circle
+	_collision_body.add_child(shape)
 	
 	# Create shared texture once
 	if _shared_tex == null:
@@ -86,38 +82,39 @@ func _ready() -> void:
 	_stamina_bar.size = Vector2(20, 2)
 	_stamina_bar.position = Vector2(-10, -17)
 	_stamina_bar.color = Color.YELLOW
-	_stamina_bar.visible = false
+	_stamina_bar.visible = false  # Hide when full
 	add_child(_stamina_bar)
 	
-	# Setup starting weapons
+	# Setup starting weapon (pistol)
 	var pistol = Weapon.new()
 	pistol.data = WeaponData.PISTOL
 	add_child(pistol)
 	inventory_weapons.append(pistol)
 	equipped_weapon = pistol
 	
+	# Add rifle for testing
 	var rifle = Weapon.new()
 	rifle.data = WeaponData.RIFLE
-	rifle.ammo_reserve = 120
+	rifle.ammo_reserve = 120  # 4 mags
 	add_child(rifle)
 	inventory_weapons.append(rifle)
 	
+	# Add shotgun for testing
 	var shotgun = Weapon.new()
 	shotgun.data = WeaponData.SHOTGUN
-	shotgun.ammo_reserve = 24
+	shotgun.ammo_reserve = 24  # 4 mags
 	add_child(shotgun)
 	inventory_weapons.append(shotgun)
 
 
-func _exit_tree() -> void:
-	if net_entity:
-		net_entity.unregister()
-
-
 func _process(delta: float) -> void:
+	_shoot_cooldown -= delta
+	_dash_timer -= delta
+	_dash_cooldown -= delta
 	_update_health_bar()
 	_update_stamina_bar()
 	
+	# Update label with username
 	if _label and not username.is_empty() and _label.text != username:
 		_label.text = username
 	
@@ -154,13 +151,10 @@ func apply_input(mv: Vector2, aim: Vector2, buttons: int, dt: float) -> void:
 	
 	# Handle dash
 	if buttons & GameConstants.BTN_DASH and _dash_cooldown <= 0.0 and mv.length() > 0.01:
+		# Start dash
 		_dash_timer = GameConstants.PLAYER_DASH_DURATION
 		_dash_cooldown = GameConstants.PLAYER_DASH_COOLDOWN
 		_dash_direction = mv.normalized()
-	
-	# Update timers
-	_dash_timer -= dt
-	_dash_cooldown -= dt
 	
 	# Handle sprint
 	var wants_sprint = (buttons & GameConstants.BTN_SPRINT) and mv.length() > 0.1
@@ -176,7 +170,7 @@ func apply_input(mv: Vector2, aim: Vector2, buttons: int, dt: float) -> void:
 		if stamina > GameConstants.PLAYER_STAMINA_MAX:
 			stamina = GameConstants.PLAYER_STAMINA_MAX
 	
-	# Calculate velocity (dash > sprint > normal)
+	# Apply movement (dash > sprint > normal)
 	if _dash_timer > 0.0:
 		velocity = _dash_direction * GameConstants.PLAYER_DASH_SPEED
 	elif is_sprinting:
@@ -184,8 +178,38 @@ func apply_input(mv: Vector2, aim: Vector2, buttons: int, dt: float) -> void:
 	else:
 		velocity = mv * GameConstants.PLAYER_MOVE_SPEED
 	
-	# Move with collision - CLEAN AND SIMPLE!
-	move_and_slide()
+	# Apply velocity with collision detection
+	# IMPORTANT: We move the parent entity, not the child collision body
+	# The child's position is always (0,0) relative to parent
+	
+	# Calculate desired movement
+	var motion = velocity * dt
+	
+	# Test collision using child body
+	_collision_body.velocity = velocity
+	var collision = _collision_body.move_and_collide(motion)
+	
+	if collision:
+		# Hit a wall - calculate slide
+		var slide_velocity = velocity.slide(collision.get_normal())
+		var slide_motion = slide_velocity * dt
+		
+		# Apply slide movement
+		_collision_body.move_and_collide(slide_motion)
+		
+		# Get the total movement from child's local position change
+		var total_motion = _collision_body.position
+		
+		# Apply to parent
+		global_position += total_motion
+		
+		# Reset child to center
+		_collision_body.position = Vector2.ZERO
+	else:
+		# No collision - move parent by full amount
+		global_position += motion
+		# Child stays at (0,0)
+		_collision_body.position = Vector2.ZERO
 	
 	# Clamp to world bounds
 	global_position.x = clamp(global_position.x, 0, 1024)
@@ -205,7 +229,7 @@ func shoot() -> bool:
 func take_damage(amount: float) -> bool:
 	"""Apply damage. Returns true if killed."""
 	health -= amount
-	_hurt_flash_timer = 0.2
+	_hurt_flash_timer = 0.2  # Flash red for 0.2 seconds
 	if health <= 0:
 		health = 0
 		return true
@@ -239,7 +263,7 @@ func apply_replicated_state(state: Dictionary) -> void:
 	# Check if health decreased (took damage)
 	var new_health = state.get("h", health)
 	if new_health < health:
-		_hurt_flash_timer = 0.2
+		_hurt_flash_timer = 0.2  # Trigger flash on health drop
 	health = new_health
 	
 	velocity = state.get("v", velocity)
@@ -249,7 +273,7 @@ func apply_replicated_state(state: Dictionary) -> void:
 	if equipped_weapon and state.has("w"):
 		equipped_weapon.apply_state(state["w"])
 	
-	# Apply username
+	# Apply username and update label if changed
 	var new_username = state.get("u", "")
 	if new_username != username:
 		username = new_username
@@ -271,7 +295,7 @@ func _update_health_bar() -> void:
 func _update_stamina_bar() -> void:
 	var pct = stamina / GameConstants.PLAYER_STAMINA_MAX
 	_stamina_bar.size.x = 20 * pct
-	_stamina_bar.visible = pct < 1.0
+	_stamina_bar.visible = pct < 1.0  # Hide when full
 
 
 func _color_from_id(id: int) -> Color:
