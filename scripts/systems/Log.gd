@@ -29,8 +29,8 @@ var _enabled: Dictionary = {
 	Category.RECONCILE: false,
 	Category.PHYSICS: false,
 	Category.DEBUG: false,
-	Category.WARNING: false,
-	Category.ERROR: false,
+	Category.WARNING: true,
+	Category.ERROR: true,
 }
 
 # Category prefixes for readability

@@ -766,7 +766,8 @@ func _try_pickup_nearest_item() -> void:
 		
 		# CLIENT PREDICTION: Hide item immediately for responsive feel
 		nearest.visible = false
-		
+		Net.server_request_pickup.rpc_id(1, nearest.net_id)
+
 		# Restore visibility after 0.5s if item still exists (server rejected pickup)
 		var item_net_id = nearest.net_id
 		await get_tree().create_timer(0.5).timeout
@@ -776,4 +777,3 @@ func _try_pickup_nearest_item() -> void:
 			item.visible = true
 			Log.warn("Pickup failed for item %d (timeout)" % item_net_id)
 		
-		Net.server_request_pickup.rpc_id(1, nearest.net_id)

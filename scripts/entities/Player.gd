@@ -107,13 +107,13 @@ func _ready() -> void:
 	
 	var rifle = Weapon.new()
 	rifle.data = WeaponData.RIFLE
-	rifle.ammo_reserve = 120
+	rifle.ammo_reserve = 300
 	add_child(rifle)
 	inventory_weapons.append(rifle)
 	
 	var shotgun = Weapon.new()
 	shotgun.data = WeaponData.SHOTGUN
-	shotgun.ammo_reserve = 24
+	shotgun.ammo_reserve = 90
 	add_child(shotgun)
 	inventory_weapons.append(shotgun)
 
@@ -197,8 +197,8 @@ func apply_input(mv: Vector2, aim: Vector2, buttons: int, dt: float) -> void:
 	move_and_slide()
 	
 	# Clamp to world bounds
-	global_position.x = clamp(global_position.x, 0, 1024)
-	global_position.y = clamp(global_position.y, 0, 600)
+	global_position.x = clamp(global_position.x, 0, 1024*3)
+	global_position.y = clamp(global_position.y, 0, 600*3)
 	
 	if aim.length() > 0.001:
 		rotation = aim.angle()
