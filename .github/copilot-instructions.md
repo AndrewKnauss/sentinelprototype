@@ -1,6 +1,12 @@
 # Sentinel Prototype - Copilot Instructions
 
+## Agent Instructions
+
+WE ARE COLLABORATING.  PLEASE PUSH BACK ON BAD IDEAS BEFORE IMPLEMENTING.  BE DIRECT WHEN YOU DISAGREE AND EXPLAIN YOUR RATIONALE.  ANTICIPATE PROBLEMS AND EXPLAIN (BRIEFLY) YOUR THOUGHTS.
+
 ## Project Overview
+
+I'm building an indie-scope, top-down 2D multiplayer survival game with Rust-like progression in a large scavenging sandbox where the main conflict is humans versus machines, but PvP and base raiding are still possible. The core loop pushes players to roam and contest timed world events for loot and objectives, then return to craft and secure resources in player-built bases. To make “bullying” low-level players counterproductive, you’re layering systems like Robin Hood raiding incentives, automatic bounties for predatory behavior, and “hot loot” that becomes risky for thieves (increasing heat/AI attention and making it hard to bank or sell). A lawfulness gradient across the map changes PvP consequences by zone, and the current prototyping focus is a single authoritative server with client prediction/reconciliation and interpolation in Godot 4.
 
 **Sentinel Prototype** is a top-down 2D multiplayer survival game (Rust-like progression) with humans vs machines, PvP/raiding, and scavenging sandbox mechanics.
 
@@ -8,6 +14,9 @@
 - **Language**: GDScript
 - **Live**: https://woolachee.itch.io/sentinel
 - **Server**: Railway.app (WebSocket/ENet dual protocol)
+- **Development Environment**: Windows 11. VS Code for editing, Godot Editor for testing. 
+- **Project Repo**: C:\git\sentinelprototype\
+- **Save Location**: C:\Users\andre\AppData\Roaming\Godot\app_userdata\SentinelPrototype\saves\
 
 ---
 
