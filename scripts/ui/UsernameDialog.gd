@@ -11,10 +11,20 @@ var _error_label: Label
 
 
 func _ready() -> void:
+	# Full-screen background for centering
+	anchor_left = 0.0
+	anchor_top = 0.0
+	anchor_right = 1.0
+	anchor_bottom = 1.0
+	
 	# Center panel
 	var panel = PanelContainer.new()
-	panel.position = Vector2(400, 250)
+	panel.set_anchors_preset(Control.PRESET_CENTER)
 	panel.size = Vector2(400, 200)
+	panel.offset_left = -200
+	panel.offset_top = -100
+	panel.offset_right = 200
+	panel.offset_bottom = 100
 	add_child(panel)
 	
 	var vbox = VBoxContainer.new()

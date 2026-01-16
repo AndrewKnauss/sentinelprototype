@@ -132,7 +132,11 @@ func _ready() -> void:
 	
 	# Debug overlay (top-right)
 	_debug_label = Label.new()
-	_debug_label.position = Vector2(DisplayServer.window_get_size().x - 300, 10)
+	_debug_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_debug_label.offset_left = -300
+	_debug_label.offset_right = -10
+	_debug_label.offset_top = 10
+	_debug_label.offset_bottom = 10
 	_debug_label.add_theme_font_size_override("font_size", 14)
 	_debug_label.modulate = Color(1, 1, 0, 0.9)  # Yellow
 	_debug_label.visible = false
@@ -140,7 +144,11 @@ func _ready() -> void:
 	
 	# Ammo HUD (bottom-right)
 	_ammo_label = Label.new()
-	_ammo_label.position = Vector2(DisplayServer.window_get_size().x - 200, DisplayServer.window_get_size().y - 80)
+	_ammo_label.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	_ammo_label.offset_left = -200
+	_ammo_label.offset_right = -10
+	_ammo_label.offset_top = -80
+	_ammo_label.offset_bottom = -10
 	_ammo_label.add_theme_font_size_override("font_size", 24)
 	_ammo_label.modulate = Color(1, 1, 1, 1)
 	canvas_layer.add_child(_ammo_label)
