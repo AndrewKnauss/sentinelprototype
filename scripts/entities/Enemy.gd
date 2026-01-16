@@ -10,6 +10,7 @@ class_name Enemy
 
 signal died(enemy_id: int)
 signal wants_to_shoot(direction: Vector2)
+signal dropped_loot(position: Vector2, loot_items: Array)  # Array of {item_id, quantity}
 
 enum State { CHASE, WANDER, SEPARATE }
 
@@ -20,11 +21,12 @@ var authority: int = 1
 
 # Enemy stats
 var health: float = GameConstants.ENEMY_MAX_HEALTH
-var target_player: Player = null
+var target_player: Node = null  # Player (weak type to avoid circular dependency)
+var enemy_type: int = 0  # 0=Normal, 1=Scout, 2=Tank, 3=Sniper, 4=Swarm
 
 # Aggro tracking
 var _damage_taken: Dictionary = {}
-var _aggro_target: Player = null
+var _aggro_target: Node = null  # Player (weak type)
 var _aggro_lock_time: float = 0.0
 
 # AI state
@@ -224,12 +226,12 @@ func _pick_new_wander_target() -> void:
 	)
 
 
-func _find_nearest_player() -> Player:
-	var nearest: Player = null
+func _find_nearest_player() -> Node:  # Returns Player (weak type)
+	var nearest: Node = null  # Player
 	var nearest_dist = INF
 	
 	for entity in Replication.get_all_entities():
-		if entity is Player:
+		if "is_local" in entity:  # Player check (has is_local property)
 			var dist = global_position.distance_to(entity.global_position)
 			if dist < nearest_dist:
 				nearest_dist = dist
@@ -238,7 +240,7 @@ func _find_nearest_player() -> Player:
 	return nearest
 
 
-func _get_aggro_target() -> Player:
+func _get_aggro_target() -> Node:  # Returns Player (weak type)
 	"""Get target based on aggro system with sticky targeting."""
 	
 	# If we have a locked aggro target and they're still valid
@@ -253,13 +255,13 @@ func _get_aggro_target() -> Player:
 	
 	# Find player who has dealt most damage
 	var top_damage = 0.0
-	var top_attacker: Player = null
+	var top_attacker: Node = null  # Player
 	
 	for player_id in _damage_taken:
 		var damage = _damage_taken[player_id]
 		if damage > top_damage:
 			for entity in Replication.get_all_entities():
-				if entity is Player and entity.net_id == player_id:
+				if "is_local" in entity and entity.net_id == player_id:  # Player check
 					top_damage = damage
 					top_attacker = entity
 					break
@@ -283,7 +285,7 @@ func take_damage(amount: float, attacker_id: int = 0) -> bool:
 		
 		# Lock aggro to this attacker
 		for entity in Replication.get_all_entities():
-			if entity is Player and entity.net_id == attacker_id:
+			if "is_local" in entity and entity.net_id == attacker_id:  # Player check
 				_aggro_target = entity
 				_aggro_lock_time = GameConstants.ENEMY_AGGRO_LOCK_TIME
 				
@@ -295,6 +297,13 @@ func take_damage(amount: float, attacker_id: int = 0) -> bool:
 	
 	if health <= 0:
 		health = 0
+		
+		# Roll loot before dying
+		var loot_table = PredefinedLootTables.get_table_for_enemy_type(enemy_type)
+		var loot = loot_table.roll()
+		if not loot.is_empty():
+			dropped_loot.emit(global_position, [loot])
+		
 		died.emit(net_id)
 		return true
 	return false

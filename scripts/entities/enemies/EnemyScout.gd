@@ -17,6 +17,7 @@ const SCOUT_FIRE_RATE: float = 1.2  # Faster shooting
 
 
 func _ready() -> void:
+	enemy_type = 1  # Scout
 	_base_color = Color(1.0, 0.5, 0.0)  # Orange
 	Log.entity("Scout _ready: Set _base_color to %s" % _base_color)
 	super._ready()

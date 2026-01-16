@@ -194,6 +194,20 @@ run_client_local.bat     # Single client → localhost
 
 ## Recent Changes
 
+**Session #6 - Loot & Inventory System** ✅ COMPLETE:
+- **ItemData + ItemRegistry** (13 starter items: resources, ammo, consumables, buildables)
+- **LootTable system** (weighted random drops per enemy type)
+- **Inventory component** (20 slots, stacking, add/remove)
+- **ItemDrop entity** (static after spawn, no interpolation like walls)
+- **Enemy loot drops** (on death, rolls loot table)
+- **E-key pickup** (client prediction: hide immediately, restore if failed)
+- **Server validation** (range check, inventory space check)
+- **Pickup UI** (yellow "[E] Item Name x5" prompt when near items)
+- **Client-side prediction** (instant hide on pickup, 0.5s timeout to restore if rejected)
+- Design doc updated: `docs/systems/LOOT_SYSTEM.md`
+- Items spawn on enemy death and are pickupable
+- No UI inventory display yet (console logging works for testing)
+
 **Session #5 - Collision System + Component Pattern Refactor**:
 - **MAJOR ARCHITECTURAL REFACTOR**: Complete rewrite to component-based networking
   - `NetworkedEntity` is now a **RefCounted component** (was Node2D base class)
@@ -291,11 +305,10 @@ run_client_local.bat     # Single client → localhost
 - None currently
 
 ## Next Session
-- **Session 6: Loot & Inventory System**
-- Item definitions (ItemData)
-- ItemDrop entity (spawns on ground)
-- Inventory component (20 slots)
-- E-key pickup interaction
-- Drop on death
-- Inventory UI (grid display)
-- Polish pass when combat feels good (muzzle flash, sounds, particles)
+- **Session 7: Inventory UI + Drop on Death**
+- Inventory grid display (I key toggle)
+- Item tooltips (hover for details)
+- Drag-and-drop (optional, can defer)
+- Drop on player death (scatter items)
+- F8 admin command to give items for testing
+- Polish: muzzle flash, hit particles, sounds (when combat feels good)

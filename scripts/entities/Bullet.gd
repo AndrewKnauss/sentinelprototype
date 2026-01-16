@@ -103,20 +103,20 @@ func _check_collision() -> bool:
 		if result:
 			var collider = result.get("collider")
 			# Collider IS the Wall (StaticBody2D)
-			if collider is Wall:
+			if collider and collider.get_script() == preload("res://scripts/entities/Wall.gd"):
 				_on_hit_wall(collider)
 				return true
 	
 	# Check player collision (circle collision)
 	for entity in Replication.get_all_entities():
-		if entity is Player and entity.net_id != owner_id:
+		if "is_local" in entity and entity.net_id != owner_id:  # Player check (has is_local property)
 			if global_position.distance_to(entity.global_position) < 16:
 				_on_hit_player(entity)
 				return true
 	
 	# Check enemy collision (circle collision)
 	for entity in Replication.get_all_entities():
-		if entity is Enemy:
+		if "enemy_type" in entity:  # Enemy check (has enemy_type property)
 			# Check friendly fire rules
 			var can_damage = false
 			if owner_id != 0:  # Player bullet
@@ -131,7 +131,7 @@ func _check_collision() -> bool:
 	return false
 
 
-func _on_hit_wall(wall: Wall) -> void:
+func _on_hit_wall(wall: Node) -> void:  # Wall (weak type)
 	"""Handle wall collision."""
 	if Net.is_server():
 		if wall.take_damage(damage):
@@ -139,7 +139,7 @@ func _on_hit_wall(wall: Wall) -> void:
 		Net.despawn_entity.rpc(net_id)
 
 
-func _on_hit_player(player: Player) -> void:
+func _on_hit_player(player: Node) -> void:  # Player (weak type)
 	"""Handle player collision."""
 	if Net.is_server():
 		if player.take_damage(damage):
@@ -152,7 +152,7 @@ func _on_hit_player(player: Player) -> void:
 		Net.despawn_entity.rpc(net_id)
 
 
-func _on_hit_enemy(enemy: Enemy) -> void:
+func _on_hit_enemy(enemy: Node) -> void:  # Enemy (weak type)
 	"""Handle enemy collision."""
 	if Net.is_server():
 		if enemy.take_damage(damage, owner_id):

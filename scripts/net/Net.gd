@@ -7,6 +7,16 @@ extends Node
 # Transport + RPC wiring layer for the multiplayer game.
 # =============================================================================
 
+# Preload entity scripts for spawning
+const Bullet = preload("res://scripts/entities/Bullet.gd")
+const Enemy = preload("res://scripts/entities/Enemy.gd")
+const EnemyScout = preload("res://scripts/entities/enemies/EnemyScout.gd")
+const EnemyTank = preload("res://scripts/entities/enemies/EnemyTank.gd")
+const EnemySniper = preload("res://scripts/entities/enemies/EnemySniper.gd")
+const EnemySwarm = preload("res://scripts/entities/enemies/EnemySwarm.gd")
+const Wall = preload("res://scripts/entities/Wall.gd")
+const ItemDrop = preload("res://scripts/entities/ItemDrop.gd")
+
 # Signals
 signal server_started(port: int)
 signal client_connected(my_id: int)
@@ -22,6 +32,7 @@ signal ack_received(ack: Dictionary)
 signal static_snapshot_received(states: Dictionary)
 signal username_received(peer_id: int, username: String)  # Server receives username from client
 signal username_accepted(success: bool, message: String)  # Client receives validation result
+signal pickup_requested(peer_id: int, item_drop: ItemDrop)  # Server receives pickup request
 
 var _sm: SceneMultiplayer = null
 
@@ -204,6 +215,11 @@ func spawn_entity(data: Dictionary) -> void:
 			entity = Wall.new()
 			entity.global_position = pos
 			entity.builder_id = extra.get("builder", 0)
+		"item_drop":
+			entity = ItemDrop.new()
+			entity.global_position = pos
+			entity.item_id = extra.get("item_id", "")
+			entity.quantity = extra.get("quantity", 1)
 	
 	if entity:
 		entity.net_id = net_id
@@ -224,6 +240,19 @@ func despawn_entity(net_id: int) -> void:
 		entity.queue_free()
 	# Silently ignore if not found - likely short-lived entity (bullet)
 
+
+# ========== LOOT SYSTEM ==========
+@rpc("any_peer", "reliable")
+func server_request_pickup(item_drop_net_id: int) -> void:
+	"""Client requests to pickup an item."""
+	if not is_server():
+		return
+	
+	var peer_id = _sm.get_remote_sender_id()
+	var entity = Replication.get_entity(item_drop_net_id)
+	if entity and entity is ItemDrop:
+		# Emit signal for ServerMain to handle
+		pickup_requested.emit(peer_id, entity)
 
 # ========== USERNAME SYSTEM ==========
 @rpc("any_peer", "reliable")

@@ -24,6 +24,7 @@ var _charge_cooldown: float = 0.0
 
 
 func _ready() -> void:
+	enemy_type = 2  # Tank
 	_base_color = Color(0.5, 0.5, 0.5)  # Gray
 	super._ready()
 	health = TANK_HEALTH

@@ -38,6 +38,13 @@ class_name ClientMain
 #   4. Every frame → Interpolate remote entities from buffered snapshots
 # =============================================================================
 
+# Preload entity scripts
+const Player = preload("res://scripts/entities/Player.gd")
+const Bullet = preload("res://scripts/entities/Bullet.gd")
+const Wall = preload("res://scripts/entities/Wall.gd")
+const Enemy = preload("res://scripts/entities/Enemy.gd")
+const ItemDrop = preload("res://scripts/entities/ItemDrop.gd")
+
 var _world: Node2D
 var _players: Dictionary = {}  # peer_id -> Player
 var _my_id: int = 0
@@ -59,6 +66,7 @@ var _last_server_state: Dictionary = {}
 var _debug_visible: bool = false
 var _debug_label: Label
 var _ammo_label: Label  # Weapon ammo display
+var _pickup_prompt: Label  # "Press E to pick up" prompt
 var _last_snapshot_time: float = 0.0
 var _snapshot_count: int = 0
 var _last_ack_time: float = 0.0
@@ -153,6 +161,19 @@ func _ready() -> void:
 	_ammo_label.modulate = Color(1, 1, 1, 1)
 	canvas_layer.add_child(_ammo_label)
 	
+	# Pickup prompt (bottom-center)
+	_pickup_prompt = Label.new()
+	_pickup_prompt.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	_pickup_prompt.offset_left = -100
+	_pickup_prompt.offset_right = 100
+	_pickup_prompt.offset_top = -40
+	_pickup_prompt.offset_bottom = -10
+	_pickup_prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_pickup_prompt.add_theme_font_size_override("font_size", 18)
+	_pickup_prompt.modulate = Color(1, 1, 0, 1)  # Yellow
+	_pickup_prompt.visible = false
+	canvas_layer.add_child(_pickup_prompt)
+	
 	Net.client_connected.connect(func(id): 
 		_my_id = id
 		Log.network("My ID is %d" % id)
@@ -185,6 +206,13 @@ func _physics_process(_delta: float) -> void:
 	
 	# Interpolate ALL non-local entities (players, enemies, NOT walls)
 	_interpolate_all_entities()
+	
+	# Update pickup prompt and handle interaction
+	_update_pickup_prompt()
+	
+	# Check for item pickup (E key)
+	if Input.is_action_just_pressed("ui_interact"):
+		_try_pickup_nearest_item()
 
 func _process(delta: float) -> void:
 	# Toggle debug overlay with F3
@@ -687,3 +715,65 @@ func _on_username_result(success: bool, message: String) -> void:
 			if _username_dialog:
 				_username_dialog.queue_free()
 				_username_dialog = null
+
+
+# ========== LOOT SYSTEM ==========
+func _update_pickup_prompt() -> void:
+	"""Update pickup prompt visibility based on nearby items."""
+	var player = _players.get(_my_id)
+	if not player:
+		_pickup_prompt.visible = false
+		return
+	
+	# Find nearest item drop within range
+	var nearest: ItemDrop = null
+	var nearest_dist = 50.0  # Max pickup range
+	
+	for entity in Replication.get_all_entities():
+		if entity is ItemDrop and entity.visible:  # Skip hidden items
+			var dist = player.global_position.distance_to(entity.global_position)
+			if dist < nearest_dist:
+				nearest_dist = dist
+				nearest = entity
+	
+	if nearest:
+		var item_def = ItemRegistry.get_item(nearest.item_id)
+		var item_name = item_def.name if item_def else nearest.item_id
+		_pickup_prompt.text = "[E] %s x%d" % [item_name, nearest.quantity]
+		_pickup_prompt.visible = true
+	else:
+		_pickup_prompt.visible = false
+
+func _try_pickup_nearest_item() -> void:
+	"""Find nearest item drop and request pickup from server."""
+	var player = _players.get(_my_id)
+	if not player:
+		return
+	
+	# Find nearest item drop within range
+	var nearest: ItemDrop = null
+	var nearest_dist = 50.0  # Max pickup range
+	
+	for entity in Replication.get_all_entities():
+		if entity is ItemDrop:
+			var dist = player.global_position.distance_to(entity.global_position)
+			if dist < nearest_dist:
+				nearest_dist = dist
+				nearest = entity
+	
+	if nearest:
+		Log.entity("Requesting pickup of item %d (%s x%d)" % [nearest.net_id, nearest.item_id, nearest.quantity])
+		
+		# CLIENT PREDICTION: Hide item immediately for responsive feel
+		nearest.visible = false
+		
+		# Restore visibility after 0.5s if item still exists (server rejected pickup)
+		var item_net_id = nearest.net_id
+		await get_tree().create_timer(0.5).timeout
+		var item = Replication.get_entity(item_net_id)
+		if item and is_instance_valid(item):
+			# Item still exists - server didn't despawn it (pickup failed)
+			item.visible = true
+			Log.warn("Pickup failed for item %d (timeout)" % item_net_id)
+		
+		Net.server_request_pickup.rpc_id(1, nearest.net_id)

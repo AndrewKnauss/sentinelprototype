@@ -5,10 +5,11 @@ Item drops from enemies/world events, pickup interaction, inventory management, 
 
 ## Architecture
 
-### Entity: ItemDrop (extends NetworkedEntity)
+### Entity: ItemDrop (extends Node2D)
 **Purpose**: Physical loot item in the world  
-**Authority**: Server-only spawns, clients interpolate  
-**Replication**: Position, item type, rarity, quantity
+**Authority**: Server-only spawns, NO interpolation (static like walls)  
+**Replication**: Position, item type, rarity, quantity  
+**Rationale**: Items don't move after spawning, so interpolation wastes bandwidth. Client-side visual bobbing only.
 
 ### Data Structures
 ```gdscript
@@ -97,7 +98,7 @@ func _try_pickup_item(player: Player, drop: ItemDrop):
 		...
 ```
 
-### Client Interaction
+### Client Interaction (with Client Prediction)
 ```gdscript
 # ClientMain.gd - Input handling
 func _physics_process(delta):
@@ -122,8 +123,17 @@ func _try_pickup_nearest_item():
 				nearest = entity
 	
 	if nearest:
+		# CLIENT PREDICTION: Hide item immediately (feels responsive)
+		nearest.visible = false
+		
 		# Send pickup request to server
 		Net.server_request_pickup.rpc_id(1, nearest.net_id)
+
+func _on_pickup_failed(net_id: int):
+	# Server rejected pickup - respawn item visually
+	var item = Replication.get_entity(net_id)
+	if item:
+		item.visible = true
 ```
 
 ### Inventory Component
@@ -168,6 +178,10 @@ func add_item(item_id: String, qty: int) -> int:
 
 func get_replicated_state() -> Dictionary:
 	return {"slots": slots}
+
+# OPTIMIZATION: Inventory is NOT sent in player snapshots
+# Instead, sent separately on change (dirty flag pattern)
+# See ServerMain._send_inventory_updates()
 ```
 
 ## Implementation Steps

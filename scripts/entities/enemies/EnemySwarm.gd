@@ -16,6 +16,7 @@ const SWARM_CLOSE_RANGE: float = 150.0
 
 
 func _ready() -> void:
+	enemy_type = 4  # Swarm
 	_base_color = Color(0.0, 1.0, 1.0)  # Cyan
 	super._ready()
 	health = SWARM_HEALTH

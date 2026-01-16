@@ -42,15 +42,24 @@
   - Fixed teleporting/circular movement bugs caused by position feedback loops
 - [x] Design doc created: `docs/systems/COLLISION.md`
 
-### Session 6: Loot & Inventory
-- [ ] **Item system** (ItemData definitions) - See `LOOT_SYSTEM.md`
-- [ ] ItemDrop entity (spawns, interpolation)
-- [ ] Inventory component (20 slots)
-- [ ] E-key pickup interaction
-- [ ] Drop on death
-- [ ] Inventory UI (grid display)
+### Session 6: Loot & Inventory ✅ COMPLETE
+- [x] **Item system** (ItemData definitions) - See `LOOT_SYSTEM.md`
+- [x] ItemDrop entity (spawns, NO interpolation - static like walls)
+- [x] Inventory component (20 slots)
+- [x] E-key pickup interaction (with client prediction)
+- [x] Pickup UI prompt (yellow "[E] Item Name x5")
+- [ ] Drop on death (deferred to Session 7)
+- [ ] Inventory UI (grid display - deferred to Session 7)
 
-### Session 7: Base Building
+### Session 7: Inventory UI + Drop on Death
+- [ ] Inventory grid UI (I key toggle, 4x5 grid)
+- [ ] Item tooltips (name, type, rarity, description)
+- [ ] Drop on player death (scatter items around corpse)
+- [ ] Admin commands (F8 give items, F9 clear inventory)
+- [ ] Console commands (`/give item_id quantity`)
+- [ ] Inventory persistence (save/load on connect/disconnect)
+
+### Session 8: Base Building
 - [ ] **Tool Cupboard** (ownership, authorization) - See `BASE_BUILDING.md`
 - [ ] Building grid (local to cupboard, not world-global)
 - [ ] Building mode (B key, ghost preview, rotation)
@@ -208,17 +217,17 @@ See `ADVANCED_SYSTEMS.md`
 
 ## WEEK-BY-WEEK ROADMAP
 
-### Week 1: Foundation
+### Week 1: Foundation ✅
 1. Sprint + stamina ✓
-2. Weapon system (5 types)
-3. Enemy variety (5 types)
-4. **Polish pass** (muzzle flash, sounds, shake)
+2. Weapon system (5 types) ✓
+3. Enemy variety (5 types) ✓
+4. **Polish pass** (muzzle flash, sounds, shake) - DEFERRED
 
-### Week 2: Persistence & Loot
-5. **DATABASE SETUP** (critical)
-6. Loot drops + inventory
-7. Pickup interaction
-8. Player/structure saves
+### Week 2: Persistence & Loot ✅
+5. **DATABASE SETUP** (critical) ✓ JSON backend
+6. Loot drops + inventory ✓
+7. Pickup interaction ✓
+8. Player/structure saves ✓
 
 ### Week 3: Base Building
 9. Tool Cupboard system

@@ -22,6 +22,7 @@ var _laser_line: Line2D
 
 
 func _ready() -> void:
+	enemy_type = 3  # Sniper
 	_base_color = Color(0.8, 0.0, 0.8)  # Magenta
 	super._ready()
 	health = SNIPER_HEALTH

@@ -34,6 +34,11 @@ const DEFAULT_PORT: int = 24567
 # - Nothing.
 # -----------------------------------------------------------------------------
 func _ready() -> void:
+	# Initialize item system
+	ItemRegistry.initialize()
+	PredefinedLootTables.initialize()
+	Log.network("Loot system initialized")
+	
 	# User args are what you pass after `--`.
 	# Example (server):
 	#   godot4 --headless --path . -- --server --port=24567

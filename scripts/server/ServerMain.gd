@@ -7,11 +7,23 @@ class_name ServerMain
 # Authoritative server with players, enemies, bullets, and walls.
 # =============================================================================
 
+# Preload entity scripts
+const Player = preload("res://scripts/entities/Player.gd")
+const Enemy = preload("res://scripts/entities/Enemy.gd")
+const EnemyScout = preload("res://scripts/entities/enemies/EnemyScout.gd")
+const EnemyTank = preload("res://scripts/entities/enemies/EnemyTank.gd")
+const EnemySniper = preload("res://scripts/entities/enemies/EnemySniper.gd")
+const EnemySwarm = preload("res://scripts/entities/enemies/EnemySwarm.gd")
+const Wall = preload("res://scripts/entities/Wall.gd")
+const Bullet = preload("res://scripts/entities/Bullet.gd")
+const ItemDrop = preload("res://scripts/entities/ItemDrop.gd")
+
 var _world: Node2D
 var _players: Dictionary = {}  # peer_id -> Player
 var _enemies: Array = []  # Array of Enemy
 var _walls: Array = []  # Array of Wall
 var _bullets: Array = []  # Array of Bullet
+var _item_drops: Array = []  # Array of ItemDrop
 
 # Username tracking
 var _username_to_peer: Dictionary = {}  # username -> peer_id (runtime)
@@ -51,6 +63,7 @@ func _ready() -> void:
 	Net.peer_disconnected.connect(_on_peer_disconnected)
 	Net.input_received.connect(_on_input_received)
 	Net.username_received.connect(_on_username_received)  # Handle username auth
+	Net.pickup_requested.connect(_on_pickup_requested)  # Handle loot pickup
 	
 	# Load persisted structures
 	_load_all_structures()
@@ -203,6 +216,7 @@ func _spawn_enemy(pos: Vector2, enemy_type: String = "") -> void:
 	enemy.authority = 1
 	enemy.global_position = pos
 	enemy.died.connect(func(_id): _respawn_enemy(enemy, enemy_type))
+	enemy.dropped_loot.connect(_on_enemy_dropped_loot)
 	
 	# Different damage for different types
 	var damage = GameConstants.BULLET_DAMAGE
@@ -476,6 +490,63 @@ func _respawn_player(player: Player) -> void:
 		randf_range(GameConstants.SPAWN_MIN.y, GameConstants.SPAWN_MAX.y)
 	)
 	player.respawn(spawn_pos)
+
+
+func _on_enemy_dropped_loot(position: Vector2, loot_items: Array) -> void:
+	"""Handle loot drops from enemies."""
+	for loot in loot_items:
+		if loot.has("item_id") and loot.has("quantity"):
+			_spawn_item_drop(position, loot.item_id, loot.quantity)
+
+
+func _spawn_item_drop(pos: Vector2, item_id: String, quantity: int) -> void:
+	"""Spawn an item drop in the world."""
+	var drop = ItemDrop.new()
+	drop.net_id = Replication.generate_id()
+	drop.authority = 1
+	drop.global_position = pos
+	drop.item_id = item_id
+	drop.quantity = quantity
+	_world.add_child(drop)
+	_item_drops.append(drop)
+	
+	# Tell clients
+	Net.spawn_entity.rpc({
+		"type": "item_drop",
+		"net_id": drop.net_id,
+		"pos": pos,
+		"extra": {"item_id": item_id, "quantity": quantity}
+	})
+
+
+func _on_pickup_requested(peer_id: int, item_drop: ItemDrop) -> void:
+	"""Handle pickup request from client."""
+	if not _players.has(peer_id):
+		return
+	
+	var player = _players[peer_id]
+	
+	# Check range (50 pixels)
+	if player.global_position.distance_to(item_drop.global_position) > 50:
+		Log.warn("Player %d too far from item drop %d" % [peer_id, item_drop.net_id])
+		return
+	
+	# Add to inventory (returns remaining quantity if full)
+	var remaining = player.inventory.add_item(item_drop.item_id, item_drop.quantity)
+	
+	if remaining == 0:
+		# Fully picked up - despawn
+		Log.entity("Player %d picked up %dx %s" % [peer_id, item_drop.quantity, item_drop.item_id])
+		Net.despawn_entity.rpc(item_drop.net_id)
+		item_drop.queue_free()
+		_item_drops.erase(item_drop)
+	elif remaining < item_drop.quantity:
+		# Partial pickup - update quantity
+		Log.entity("Player %d partially picked up %s (remaining: %d)" % [peer_id, item_drop.item_id, remaining])
+		item_drop.quantity = remaining
+	else:
+		# Inventory full
+		Log.warn("Player %d inventory full, could not pickup %s" % [peer_id, item_drop.item_id])
 
 
 func _send_static_snapshot() -> void:

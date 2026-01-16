@@ -29,6 +29,9 @@ var _dash_direction: Vector2 = Vector2.ZERO
 var equipped_weapon: Weapon = null
 var inventory_weapons: Array = []
 
+# Inventory system
+var inventory: Inventory = null
+
 # Visuals
 var _sprite: Sprite2D
 var _label: Label
@@ -88,6 +91,10 @@ func _ready() -> void:
 	_stamina_bar.color = Color.YELLOW
 	_stamina_bar.visible = false
 	add_child(_stamina_bar)
+	
+	# Create inventory
+	inventory = Inventory.new()
+	add_child(inventory)
 	
 	# Setup starting weapons
 	var pistol = Weapon.new()
