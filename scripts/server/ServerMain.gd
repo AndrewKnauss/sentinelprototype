@@ -17,6 +17,7 @@ var _last_input: Dictionary = {}  # peer_id -> cmd
 var _last_seq: Dictionary = {}  # peer_id -> int
 var _server_tick: int = 0
 var _static_snapshot_timer: float = 0.0
+var _autosave_timer: float = 0.0
 
 const ENEMY_SPAWN_POSITIONS = [
 	Vector2(200, 200),
@@ -26,6 +27,7 @@ const ENEMY_SPAWN_POSITIONS = [
 	Vector2(500, 500)
 ]
 const STATIC_SNAPSHOT_INTERVAL: float = 5.0
+const AUTOSAVE_INTERVAL: float = 30.0  # Autosave every 30 seconds
 
 
 func _ready() -> void:
@@ -43,6 +45,9 @@ func _ready() -> void:
 	Net.peer_connected.connect(_on_peer_connected)
 	Net.peer_disconnected.connect(_on_peer_disconnected)
 	Net.input_received.connect(_on_input_received)
+	
+	# Load persisted structures
+	_load_all_structures()
 	
 	# Spawn initial enemies
 	for pos in ENEMY_SPAWN_POSITIONS:
@@ -128,6 +133,12 @@ func _physics_process(_delta: float) -> void:
 	if _static_snapshot_timer >= STATIC_SNAPSHOT_INTERVAL:
 		_static_snapshot_timer = 0.0
 		_send_static_snapshot()
+	
+	# 6. Autosave periodically
+	_autosave_timer += dt
+	if _autosave_timer >= AUTOSAVE_INTERVAL:
+		_autosave_timer = 0.0
+		_autosave_all()
 
 
 func _cleanup_bullets() -> void:
@@ -264,6 +275,9 @@ func _try_build_wall(player: Player, aim_dir: Vector2) -> void:
 	_world.add_child(wall)
 	_walls.append(wall)
 	
+	# Save to database
+	_save_or_update_structure(wall)
+	
 	# Tell clients (RELIABLE for walls)
 	for peer_id in Net.get_peers():
 		Net.spawn_entity.rpc_id(peer_id, {
@@ -275,27 +289,55 @@ func _try_build_wall(player: Player, aim_dir: Vector2) -> void:
 
 
 func _despawn_wall(wall: Wall) -> void:
+	# Delete from database
+	var structure_id = wall.get_meta("structure_id", -1)
+	if structure_id >= 0:
+		Persistence.delete_structure(structure_id)
+	
 	Net.despawn_entity.rpc(wall.net_id)
 	wall.queue_free()
 	_walls.erase(wall)
 
 
 func _on_peer_connected(peer_id: int) -> void:
-	Log.network("Peer connected: %d" % peer_id)
+	Log.network("Peer connected: %d, loading data..." % peer_id)
 	
-	var spawn_pos = Vector2(
-		randf_range(GameConstants.SPAWN_MIN.x, GameConstants.SPAWN_MAX.x),
-		randf_range(GameConstants.SPAWN_MIN.y, GameConstants.SPAWN_MAX.y)
-	)
+	# Load player data from database
+	var data = Persistence.load_player(peer_id)
 	
 	var player = Player.new()
 	player.net_id = peer_id
 	player.authority = 1  # Server authoritative
-	player.global_position = spawn_pos
+	
+	if data.is_empty():
+		# NEW PLAYER - Default spawn
+		var spawn_pos = Vector2(
+			randf_range(GameConstants.SPAWN_MIN.x, GameConstants.SPAWN_MAX.x),
+			randf_range(GameConstants.SPAWN_MIN.y, GameConstants.SPAWN_MAX.y)
+		)
+		player.global_position = spawn_pos
+		player.health = GameConstants.PLAYER_MAX_HEALTH
+		Log.network("New player %d created at %s" % [peer_id, spawn_pos])
+	else:
+		# RETURNING PLAYER - Restore state
+		player.global_position = Vector2(data.position_x, data.position_y)
+		player.health = data.get("health", GameConstants.PLAYER_MAX_HEALTH)
+		# TODO: Load level, xp, reputation, currency when systems exist
+		Log.network("Loaded player %d: pos=%s, hp=%.1f" % [
+			peer_id, player.global_position, player.health
+		])
+	
 	_world.add_child(player)
 	_players[peer_id] = player
 	_last_input[peer_id] = {}
 	_last_seq[peer_id] = 0
+	
+	# TODO: Load inventory when system exists
+	# var inv_slots = Persistence.load_inventory(peer_id)
+	# player.inventory.load_from_array(inv_slots)
+	
+	# Initial save (creates DB entry if new)
+	_save_player(player)
 	
 	# Send new peer all existing entities
 	for id in _players:
@@ -343,10 +385,19 @@ func _on_peer_connected(peer_id: int) -> void:
 
 
 func _on_peer_disconnected(peer_id: int) -> void:
-	Log.network("Peer disconnected: %d" % peer_id)
+	Log.network("Peer disconnected: %d, saving data..." % peer_id)
 	
 	if _players.has(peer_id):
-		_players[peer_id].queue_free()
+		var player = _players[peer_id]
+		
+		# SAVE ON DISCONNECT
+		_save_player(player)
+		# TODO: Save inventory when system exists
+		# Persistence.save_inventory(player.net_id, player.inventory.get_slots())
+		
+		Log.network("Saved player %d on disconnect" % peer_id)
+		
+		player.queue_free()
 		_players.erase(peer_id)
 	
 	_last_input.erase(peer_id)
@@ -394,3 +445,141 @@ func _send_static_snapshot() -> void:
 	
 	Net.client_receive_static_snapshot.rpc(static_states)
 	Log.network("Sent static snapshot with %d walls" % static_states.size())
+
+
+# =============================================================================
+# PERSISTENCE FUNCTIONS
+# =============================================================================
+
+func _load_all_structures() -> void:
+	"""Load all persisted structures from database at server startup."""
+	var structures = Persistence.load_all_structures()
+	
+	if structures.is_empty():
+		Log.network("No structures found in database")
+		return
+	
+	Log.network("Loading %d structures from database..." % structures.size())
+	
+	for data in structures:
+		match data.get("type", ""):
+			"wall":
+				_spawn_persisted_wall(data)
+			_:
+				push_error("Unknown structure type: %s" % data.get("type", "unknown"))
+
+func _spawn_persisted_wall(data: Dictionary) -> void:
+	"""Spawn a wall from persisted data."""
+	var wall = Wall.new()
+	wall.net_id = Replication.generate_id()
+	wall.authority = 1
+	wall.global_position = Vector2(data.position_x, data.position_y)
+	wall.health = data.get("health", 100.0)
+	wall.builder_id = data.get("owner_id", -1)
+	wall.set_meta("structure_id", data.get("id", -1))
+	wall.destroyed.connect(func(_id): _despawn_wall(wall))
+	
+	_world.add_child(wall)
+	_walls.append(wall)
+
+func _save_player(player: Player) -> void:
+	"""Save a player's data to database."""
+	var data = {
+		"peer_id": player.net_id,
+		"name": "Player_%d" % player.net_id,
+		"position_x": player.global_position.x,
+		"position_y": player.global_position.y,
+		"health": player.health,
+		"level": 1,  # TODO: Add level system
+		"xp": 0,
+		"reputation": 0.0,
+		"currency": 0,
+		"last_login": Time.get_unix_time_from_system()
+	}
+	Persistence.save_player(data)
+
+func _save_or_update_structure(wall: Wall) -> void:
+	"""Save or update a structure in database."""
+	var structure_id = wall.get_meta("structure_id", -1)
+	
+	var data = {
+		"owner_id": wall.builder_id,
+		"type": "wall",
+		"position_x": wall.global_position.x,
+		"position_y": wall.global_position.y,
+		"health": wall.health,
+		"created_at": Time.get_unix_time_from_system()
+	}
+	
+	if structure_id < 0:
+		# New structure - save and store ID
+		structure_id = Persistence.save_structure(data)
+		wall.set_meta("structure_id", structure_id)
+	else:
+		# Existing structure - update
+		Persistence.update_structure(structure_id, data)
+
+func _autosave_all() -> void:
+	"""Autosave all players and structures."""
+	Log.network("Autosave started...")
+	
+	# Save all players
+	for peer_id in _players:
+		var player = _players[peer_id]
+		_save_player(player)
+		# TODO: Save inventory when system exists
+	
+	# Save all structures
+	for wall in _walls:
+		_save_or_update_structure(wall)
+	
+	Log.network("Autosaved %d players, %d structures" % [_players.size(), _walls.size()])
+
+func _input(event: InputEvent) -> void:
+	"""Admin commands for server management."""
+	if not Net.is_server():
+		return
+	
+	if event is InputEventKey and event.pressed:
+		match event.keycode:
+			KEY_F5:
+				_admin_wipe_structures()
+			KEY_F6:
+				_admin_wipe_players()
+			KEY_F7:
+				_admin_show_stats()
+
+func _admin_wipe_structures() -> void:
+	"""ADMIN: Wipe all structures from game and database."""
+	Log.warn("ADMIN: Wiping all structures...")
+	
+	# Delete in-memory
+	for wall in _walls:
+		if is_instance_valid(wall):
+			wall.queue_free()
+	_walls.clear()
+	
+	# Delete from database
+	Persistence.wipe_all_structures()
+	
+	Log.warn("ADMIN: All structures wiped")
+
+func _admin_wipe_players() -> void:
+	"""ADMIN: Wipe all player data from database (NOT online players)."""
+	Log.warn("ADMIN: Wiping all player data from database...")
+	
+	# Delete from database only (don't kick online players)
+	Persistence.wipe_all_players()
+	
+	Log.warn("ADMIN: All player data wiped from database")
+	Log.warn("ADMIN: Online players must reconnect to reset")
+
+func _admin_show_stats() -> void:
+	"""ADMIN: Show persistence statistics."""
+	var stats = Persistence.get_stats()
+	Log.network("=== PERSISTENCE STATS ===")
+	Log.network("Players in DB: %d" % stats.players)
+	Log.network("Structures in DB: %d" % stats.structures)
+	Log.network("Players online: %d" % _players.size())
+	Log.network("Walls spawned: %d" % _walls.size())
+	Log.network("========================")

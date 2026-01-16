@@ -194,6 +194,22 @@ run_client_local.bat     # Single client → localhost
 
 ## Recent Changes
 
+**Session #4 - Database Persistence**:
+- **Persistence abstraction layer** (swappable backends)
+- **JSON persistence backend** (zero dependencies, human-readable)
+- **Player login system** (load on connect, save on disconnect)
+- **Structure persistence** (walls survive server restart)
+- **30-second autosave** (all players + structures)
+- **Admin commands** (F5=wipe structures, F6=wipe players, F7=show stats)
+- **Graceful shutdown** (saves all data on server close)
+- File structure:
+  - `user://saves/players/{peer_id}.json` - One file per player
+  - `user://saves/inventory/{peer_id}.json` - One file per inventory (TODO)
+  - `user://saves/structures.json` - All structures in single file
+- Player data saved: position, health (level/xp/currency ready for future)
+- Structure data saved: type, position, health, owner
+- Ready for SQLite migration when >50 concurrent players
+
 **Session #3 - Sprint, Weapons & Enemy Variety**:
 - Sprint mechanic (Shift key, 330 speed = 1.5x base)
 - Stamina system (100 max, drains 20/sec, regens 15/sec)
@@ -233,7 +249,11 @@ run_client_local.bat     # Single client → localhost
 - None currently
 
 ## Next Session
-- **Session 4: Database persistence** (CRITICAL - blocking for all other systems)
-- Player save/load (position, stats, inventory)
-- Structure persistence
+- **Session 5: Loot & Inventory System**
+- Item definitions (ItemData)
+- ItemDrop entity (spawns on ground)
+- Inventory component (20 slots)
+- E-key pickup interaction
+- Drop on death
+- Inventory UI (grid display)
 - Polish pass when combat feels good (muzzle flash, sounds, particles)

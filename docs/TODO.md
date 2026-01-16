@@ -14,13 +14,15 @@
 - [x] **Weapon system** (5 types, switching, ammo) - **DONE**
 - [x] **Enemy variety** (Scout, Tank, Sniper, Swarm, Normal) - **DONE**
 
-### Session 4: Persistence Foundation
+### Session 4: Persistence Foundation ✅ COMPLETE
 **MUST DO BEFORE OTHER SYSTEMS**
-- [ ] **SQLite database setup** - See `PERSISTENCE.md`
-- [ ] Player save/load (position, stats, inventory)
-- [ ] Structure persistence (walls survive restart)
-- [ ] Autosave system (5 min intervals)
-- [ ] Graceful shutdown handler
+- [x] **JSON persistence backend** - See `PERSISTENCE.md`
+- [x] Player save/load (position, stats, inventory placeholder)
+- [x] Structure persistence (walls survive restart)
+- [x] Autosave system (30 second intervals)
+- [x] Graceful shutdown handler
+- [x] Admin commands (F5/F6/F7)
+- [x] Abstraction layer for future SQLite migration
 
 ### Session 5: Loot & Inventory
 - [ ] **Item system** (ItemData definitions) - See `LOOT_SYSTEM.md`

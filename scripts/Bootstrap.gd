@@ -40,6 +40,9 @@ func _ready() -> void:
 	# Example (client):
 	#   godot4 --path . -- --client --host=127.0.0.1 --port=24567
 	var args: PackedStringArray = OS.get_cmdline_user_args()
+	
+	# Setup graceful shutdown handler
+	get_tree().set_auto_accept_quit(false)
 
 	var host: String = _arg_value("--host=", DEFAULT_HOST)
 	var port: int = int(_arg_value("--port=", str(DEFAULT_PORT)))
@@ -64,6 +67,48 @@ func _ready() -> void:
 		# Auto-connect if flag present
 		if auto_connect:
 			Net.connect_client(host, port)
+
+# -----------------------------------------------------------------------------
+# _notification(what)
+# -----------------------------------------------------------------------------
+# PURPOSE:
+# - Handle graceful shutdown on server close
+#
+# WHERE CALLED:
+# - Godot calls _notification() for various system events
+#
+# RETURNS:
+# - Nothing
+# -----------------------------------------------------------------------------
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		if Net.is_server():
+			_shutdown_server()
+		get_tree().quit()
+
+func _shutdown_server() -> void:
+	"""Save all player and structure data before server shutdown."""
+	Log.network("Server shutting down, saving all data...")
+	
+	# Get reference to ServerMain node
+	var server_main = get_node_or_null("ServerMain")
+	if not server_main:
+		Log.warn("ServerMain not found, cannot save on shutdown")
+		return
+	
+	# Force immediate save of all players
+	for peer_id in server_main._players:
+		var player = server_main._players[peer_id]
+		server_main._save_player(player)
+	
+	# Force save of all structures
+	for wall in server_main._walls:
+		server_main._save_or_update_structure(wall)
+	
+	Log.network("Shutdown save complete: %d players, %d structures" % [
+		server_main._players.size(),
+		server_main._walls.size()
+	])
 
 # -----------------------------------------------------------------------------
 # _arg_value(prefix, default_val)
