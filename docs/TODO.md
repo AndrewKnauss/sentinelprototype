@@ -24,7 +24,17 @@
 - [x] Admin commands (F5/F6/F7)
 - [x] Abstraction layer for future SQLite migration
 
-### Session 5: Loot & Inventory
+### Session 5: Username & Authentication ✅ COMPLETE
+- [x] **Username system** (player identity across reconnects)
+- [x] UsernameValidator (3-16 chars, alphanumeric + underscore, reserved names)
+- [x] Server-side validation (prevent duplicate usernames)
+- [x] Persistence key changes (username instead of peer_id)
+- [x] Player label shows username
+- [x] Username sync in snapshots
+- [x] UI improvements (anchor-based positioning for debug/ammo labels)
+- [x] UsernameDialog for username input
+
+### Session 6: Loot & Inventory
 - [ ] **Item system** (ItemData definitions) - See `LOOT_SYSTEM.md`
 - [ ] ItemDrop entity (spawns, interpolation)
 - [ ] Inventory component (20 slots)
@@ -32,7 +42,7 @@
 - [ ] Drop on death
 - [ ] Inventory UI (grid display)
 
-### Session 6: Base Building
+### Session 7: Base Building
 - [ ] **Tool Cupboard** (ownership, authorization) - See `BASE_BUILDING.md`
 - [ ] Building grid (local to cupboard, not world-global)
 - [ ] Building mode (B key, ghost preview, rotation)
