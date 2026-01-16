@@ -1,504 +1,534 @@
-# Architecture Overview
+# ARCHITECTURE.md - Sentinel Prototype Technical Architecture
 
-High-level design: **authoritative server** with **client-side prediction** for local player and **interpolation** for remote entities.
+## Overview
 
----
-
-## Core System Interactions
-
-```
-┌──────────────┐         Input          ┌──────────────┐         Snapshot        ┌──────────────┐
-│              │  ─────────────────────▶│              │  ─────────────────────▶│              │
-│    CLIENT    │                        │    SERVER    │                        │    CLIENT    │
-│              │◀─────────────────────  │              │◀─────────────────────  │              │
-│              │   ACK + Snapshot       │              │    Input Received      │              │
-└──────────────┘                        └──────────────┘                        └──────────────┘
-     Local                                Authoritative                           Display
-     Prediction                           Simulation                              Interpolation
-```
+Sentinel is a top-down 2D multiplayer survival game built with Godot 4.4.1. The architecture uses authoritative server simulation with client-side prediction and interpolation for responsive networked gameplay.
 
 ---
 
-## Major APIs
+## Core Architecture Principles
 
-### Network (Net.gd - Autoload)
+### 1. Component-Based Networking (Refactored Session #5)
 
-**Server Initialization**
+**Pattern**: Composition over inheritance for flexible entity design.
+
 ```gdscript
-Net.start_server(port: int, max_clients: int)
+# NetworkedEntity.gd - Pure component (RefCounted)
+class_name NetworkedEntity
+extends RefCounted
+
+var net_id: int
+var authority: int
+var entity_type: String
+var owner_node: Node2D  # Reference to actual entity
+
+# Player.gd - Entity IS the physics body
+extends CharacterBody2D
+class_name Player
+
+var net_entity: NetworkedEntity  # Holds component
+var health: float
+var username: String
+
+func _ready():
+    # Create networking component
+    net_entity = NetworkedEntity.new(self, net_id, authority, "player")
+    
+    # Setup collision directly
+    collision_layer = 2
+    collision_mask = 1 | 2
+    
+    # Movement is simple - native Godot physics
+    func apply_input(movement, dt):
+        velocity = movement * MOVE_SPEED
+        move_and_slide()  # That's it!
 ```
 
-**Client Connection**
-```gdscript
-Net.connect_client(host: String, port: int)
+**Benefits:**
+- ✅ Entities extend their proper physics body types (CharacterBody2D, StaticBody2D, Area2D)
+- ✅ NetworkedEntity is opt-in component for replication
+- ✅ No position syncing - entities ARE their physics bodies
+- ✅ Clean separation: physics vs networking
+- ✅ Type-safe (player is CharacterBody2D works)
+- ✅ Godot-idiomatic (composition over inheritance)
+
+---
+
+## Entity Types
+
+### Player (CharacterBody2D)
+- **Authority**: Client-predicted (local player) or server-authoritative (remote players)
+- **Movement**: Client-side prediction with server reconciliation
+- **Collision**: Layer 2, masks 1|2 (walls + players)
+- **Features**: Weapons, stamina, dash, sprint, building
+
+### Enemy (CharacterBody2D)
+- **Authority**: Server-authoritative
+- **Movement**: Server AI with client interpolation
+- **Collision**: Layer 3 (bit value 4), masks 1|4 (walls + enemies)
+- **Types**: Normal, Scout, Tank, Sniper, Swarm
+- **AI**: Chase, Wander, Separate states with aggro system
+
+### Wall (StaticBody2D)
+- **Authority**: Server-authoritative
+- **Movement**: Static (no interpolation needed)
+- **Collision**: Layer 1, mask 0
+- **Features**: Health, ownership, persistence
+
+### Bullet (Node2D)
+- **Authority**: Client-predicted
+- **Movement**: Linear velocity
+- **Collision**: Raycasting (not physics layers)
+- **Lifespan**: 2 seconds, destroyed on impact
+
+---
+
+## Network Architecture
+
+### Server (Authoritative)
+
+**Responsibilities:**
+- Simulate all entities at 60 FPS fixed timestep
+- Apply player inputs to server-side player entities
+- Run enemy AI
+- Validate bullet collisions and damage
+- Persist player data and structures
+- Send snapshots to all clients
+
+**Flow:**
+```
+1. Receive player inputs (unreliable RPC)
+2. Apply inputs to server player entities
+3. Simulate enemies, bullets, walls
+4. Build snapshot of all entity states
+5. Send snapshot to all clients (unreliable RPC)
+6. Send ACK to each client (unreliable RPC)
 ```
 
-**Signal Events**
-- `peer_connected(peer_id: int)` – New player joined
-- `peer_disconnected(peer_id: int)` – Player left
-- `input_received(peer_id: int, cmd: Dictionary)` – Input from client
-- `snapshot_received(snap: Dictionary)` – Full world state
-- `ack_received(ack: Dictionary)` – Input acknowledged
-- `spawn_received(payload: Dictionary)` – New entity spawned
-- `despawn_received(peer_id: int)` – Entity destroyed
-- `username_accepted(success: bool, message: String)` – Username validation result
+### Client (Prediction + Interpolation)
 
-**RPC Methods**
-```gdscript
-# Client → Server
-Net.server_receive_input.rpc_id(1, input_dict)
-Net.server_receive_username.rpc_id(1, username_string)
+**Responsibilities:**
+- Predict local player movement instantly
+- Interpolate remote entities smoothly
+- Reconcile prediction errors
+- Render at 60 FPS
 
-# Server → All Clients
-Net.client_receive_snapshot.rpc(snapshot_dict)
-Net.client_receive_ack.rpc_id(peer_id, ack_dict)
-Net.spawn_entity.rpc(entity_spawn_payload)
-Net.despawn_entity.rpc(net_id)
-Net.client_spawn_player.rpc_id(peer_id, player_payload)
-Net.client_despawn_player.rpc(peer_id)
+**Strategies by Entity Type:**
+
+| Entity Type | Strategy | Why |
+|-------------|----------|-----|
+| Local Player | Client-side prediction | Zero-latency input response |
+| Remote Players | Interpolation (2 ticks behind) | Smooth movement without inputs |
+| Enemies | Interpolation (2 ticks behind) | Server-authoritative AI |
+| Walls | Static (health-only updates) | Don't move, no interpolation needed |
+| Bullets | Pure client prediction | Instant visual feedback |
+
+**Flow:**
+```
+1. Sample input → Send to server → Predict locally → Store state
+2. Server snapshot → Buffer for interpolation → Apply health immediately
+3. Server ACK → Check position → Reconcile if mismatch
+4. Every frame → Interpolate remote entities between buffered snapshots
 ```
 
 ---
 
-### Replication (ReplicationManager - Autoload)
+## Replication System
 
-**Entity Registry**
+### ReplicationManager (Autoload)
+
+**Purpose**: Central registry for all networked entities
+
 ```gdscript
-Replication.register(entity: NetworkedEntity)
-Replication.unregister(net_id: int)
-Replication.get_entity(net_id: int) -> NetworkedEntity
-Replication.get_all_entities() -> Array
+# ReplicationManager.gd
+var _entities: Dictionary = {}  # net_id -> NetworkedEntity component
+
+func register_entity(entity: NetworkedEntity):
+    _entities[entity.net_id] = entity
+
+func get_entity(net_id: int) -> Node2D:
+    var component = _entities.get(net_id)
+    return component.owner_node if component else null
+
+func build_snapshot() -> Dictionary:
+    var states = {}
+    for id in _entities:
+        if _entities[id].authority == 1:  # Server-authoritative only
+            states[id] = _entities[id].get_replicated_state()
+    return states
 ```
 
-**Snapshot Management**
+**Entity Registration:**
 ```gdscript
-Replication.build_snapshot() -> Dictionary  # Server: collect all entity states
-Replication.apply_snapshot(states: Dictionary)  # Client: apply server truth
-Replication.generate_id() -> int  # Generate net_id for server-spawned entities
-```
+# Automatic on spawn
+func _ready():
+    net_entity = NetworkedEntity.new(self, net_id, authority, "player")
+    # Registration happens in NetworkedEntity._init()
 
-**Entity Replication Interface** (inherit `NetworkedEntity`)
-```gdscript
-func get_replicated_state() -> Dictionary
-func apply_replicated_state(state: Dictionary) -> void
-```
-
----
-
-### Persistence (PersistenceAPI - Autoload)
-
-**Player Data**
-```gdscript
-Persistence.load_player(username: String) -> Dictionary
-Persistence.save_player(player_data: Dictionary) -> void
-```
-
-**Structures**
-```gdscript
-Persistence.load_all_structures() -> Array
-Persistence.save_structure(data: Dictionary) -> int  # Returns structure_id
-Persistence.update_structure(id: int, data: Dictionary) -> void
-Persistence.delete_structure(id: int) -> void
-```
-
-**Admin**
-```gdscript
-Persistence.wipe_all_players() -> void
-Persistence.wipe_all_structures() -> void
-Persistence.get_stats() -> Dictionary
+# Automatic cleanup on despawn
+func _exit_tree():
+    if net_entity:
+        net_entity.unregister()
 ```
 
 ---
 
-## Entity Prediction Strategies
+## Collision System
 
-| Type | Strategy | Latency | Authority |
-|------|----------|---------|-----------|
-| **Local Player** | Client-side prediction + reconciliation | 0ms | Client samples input, server validates |
-| **Remote Players** | Interpolation (2-tick delay) | ~33ms | Server authoritative |
-| **Enemies** | Interpolation (2-tick delay) | ~33ms | Server AI-controlled |
-| **Bullets** | Pure client-side prediction | 0ms | Client spawns, server validates damage |
-| **Walls** | Static position, health-only updates | 0ms | Server authoritative |
+### Physics Layers
+
+| Layer | Bit Value | Name | Entities |
+|-------|-----------|------|----------|
+| 1 | 1 | STATIC | Walls, terrain |
+| 2 | 2 | PLAYER | Players |
+| 3 | 4 | ENEMY | Enemies |
+| 4 | 8 | PROJECTILE | Bullets (unused - raycasting) |
+
+### Collision Matrix
+
+|        | STATIC | PLAYER | ENEMY |
+|--------|--------|--------|-------|
+| PLAYER | ✓ | ✓ | ✗ |
+| ENEMY  | ✓ | ✗ | ✓ |
+
+**Design Decision**: Players and enemies don't collide to prevent:
+- Body-blocking griefing
+- Enemy swarm pathfinding issues
+- Combat is ranged, not melee
+
+### Movement Pattern
+
+```gdscript
+# Player.gd / Enemy.gd
+func apply_input(movement: Vector2, dt: float):
+    # Calculate velocity
+    velocity = movement * MOVE_SPEED
+    
+    # Move with collision - NATIVE GODOT!
+    move_and_slide()
+    
+    # Optional: clamp to world bounds
+    global_position = global_position.clamp(WORLD_MIN, WORLD_MAX)
+```
+
+**No position syncing required** - entities ARE their physics bodies.
 
 ---
 
-## Data Structures
+## Prediction & Reconciliation
 
-### Input Command
+### Client-Side Prediction (Local Player Only)
+
+**Why**: Instant input response (zero perceived latency)
+
+**Process:**
+1. Sample input every frame
+2. Send to server (unreliable RPC)
+3. Apply input locally immediately
+4. Store predicted state with sequence number
+5. Keep pending inputs for reconciliation
+
 ```gdscript
+# ClientMain.gd
+func _send_and_predict(dt):
+    _input_seq += 1
+    var cmd = {"seq": _input_seq, "mv": movement, "aim": aim, "btn": buttons}
+    
+    # Send to server
+    Net.server_receive_input.rpc_id(1, cmd)
+    
+    # Predict locally
+    player.apply_input(cmd.mv, cmd.aim, cmd.btn, dt)
+    
+    # Store for reconciliation
+    _pending_inputs.append(cmd)
+    _predicted_states[_input_seq] = player.get_replicated_state()
+```
+
+### Server Reconciliation
+
+**When**: Server ACK arrives with confirmed sequence number
+
+**Process:**
+1. Compare predicted position with server position
+2. If mismatch > threshold (5 pixels):
+   - Rewind to server state
+   - Replay all pending inputs after ACK
+   - Re-predict all states
+3. If match: just drop confirmed inputs
+
+```gdscript
+# ClientMain.gd
+func _on_ack(ack):
+    var predicted_pos = _predicted_states[ack.seq].p
+    var server_pos = _last_server_state.p
+    
+    if predicted_pos.distance_to(server_pos) >= 5.0:
+        # Reconcile: rewind and replay
+        player.apply_replicated_state(_last_server_state)
+        
+        for cmd in _pending_inputs:
+            if cmd.seq > ack.seq:
+                player.apply_input(cmd.mv, cmd.aim, cmd.btn, FIXED_DELTA)
+                _predicted_states[cmd.seq] = player.get_replicated_state()
+```
+
+**What's NOT reconciled**: Health, stamina (applied immediately from snapshots)
+
+---
+
+## Interpolation (Remote Entities)
+
+### Buffer-Based Interpolation
+
+**Why**: Smooth movement despite network jitter
+
+**Process:**
+1. Receive snapshot from server
+2. Add to per-entity buffer (keyed by net_id)
+3. Render 2 ticks behind (`_latest_tick - 2`)
+4. Lerp between surrounding snapshots
+
+```gdscript
+# ClientMain.gd
+func _interpolate_entity(entity: Node2D, render_tick: int):
+    var buf = _snap_buffers[entity.net_id]
+    
+    # Find surrounding snapshots
+    var a = buf[i]      # Earlier snapshot
+    var b = buf[i+1]    # Later snapshot
+    
+    # Calculate lerp factor
+    var t = (render_tick - a.tick) / (b.tick - a.tick)
+    
+    # Interpolate position/rotation
+    entity.position = a.state.p.lerp(b.state.p, t)
+    entity.rotation = lerp_angle(a.state.r, b.state.r, t)
+    
+    # Apply health immediately (no interpolation)
+    entity.health = b.state.h
+```
+
+**Entities Interpolated**: Remote players, enemies  
+**Entities NOT Interpolated**: Walls (static), bullets (client-predicted), local player (predicted)
+
+---
+
+## Persistence System
+
+### JSON Backend (Current)
+
+**Storage:**
+- `user://saves/players/{username}.json` - One file per player
+- `user://saves/structures.json` - All structures
+
+**When Data is Saved:**
+- Player connect/disconnect
+- Autosave every 30 seconds
+- Server shutdown (graceful)
+- Admin commands (F5/F6 wipe)
+
+**What's Persisted:**
+
+**Players:**
+```json
 {
-  "seq": 1001,           # Sequence number
-  "mv": Vector2(-1, 0),  # Movement vector (normalized)
-  "aim": Vector2(1, 0),  # Aim direction (normalized)
-  "btn": 0x01            # Button flags (BTN_SHOOT, BTN_BUILD, etc)
+  "username": "Alice",
+  "position_x": 512.0,
+  "position_y": 300.0,
+  "health": 100.0,
+  "level": 1,
+  "xp": 0,
+  "reputation": 0.0,
+  "currency": 0,
+  "last_login": 1234567890
 }
 ```
 
-### Snapshot (Server → Clients)
-```gdscript
+**Structures:**
+```json
 {
-  "tick": 120,           # Server tick when snapshot was built
-  "states": {
-    "2": {"p": Vector2(100, 50), "r": 0.5, "h": 80.0, ...},   # net_id: state
-    "3": {"p": Vector2(200, 100), "r": 1.0, "h": 150.0, ...}
-  }
-}
-```
-
-### ACK (Server → Client)
-```gdscript
-{
-  "tick": 120,           # Snapshot tick this ACK corresponds to
-  "ack_seq": 1001        # Last input sequence acknowledged
-}
-```
-
----
-
-## Snapshot Processing
-
-**How different entity types are handled when a snapshot arrives:**
-
-### Players (Remote Only)
-
-**Server sends:**
-- Position, rotation, velocity
-- Health, stamina
-- Weapon state (ammo, equipped type)
-- Username (for label display)
-
-**Client receives:**
-```gdscript
-state = {"p": Vector2(...), "r": 0.5, "h": 100.0, "v": Vector2(...), "s": 50.0, "w": {...}, "u": "PlayerName"}
-```
-
-**Client processing:**
-1. Add to interpolation buffer: `_snap_buffers[net_id].append({"tick": tick, "state": state})`
-2. Keep buffer bounded to 40 snapshots
-3. Later: interpolate position/rotation between surrounding snapshots
-4. Apply health/stamina/weapon directly (no lerp)
-5. Update label if username changed
-
-**Why interpolation?**
-- Remote players are server-authoritative (we don't have their input)
-- Interpolating smooths their motion despite network jitter
-- 2-tick delay ensures buffer always has surrounding snapshots
-
----
-
-### Enemies (AI-Controlled)
-
-**Server sends:**
-- Position, rotation, velocity
-- Health
-- AI state (target, aggro status, aiming direction)
-
-**Client receives:**
-```gdscript
-state = {"p": Vector2(...), "r": 0.5, "h": 80.0, "v": Vector2(...), "ai_state": {...}}
-```
-
-**Client processing:**
-1. Same as remote players: add to interpolation buffer
-2. Interpolate position/rotation between snapshots
-3. Apply health directly
-4. Apply full `apply_replicated_state()` to sync custom AI fields
-
-**Why interpolation?**
-- Server runs all AI logic (pathfinding, targeting, shooting)
-- Client has no prediction data
-- Smooth interpolation hides network latency
-
----
-
-### Walls (Static Structures)
-
-**Server sends:**
-- Position (once, at spawn time only)
-- Health (updated every snapshot)
-
-**Client receives (at spawn):**
-```gdscript
-{
+  "id": 1,
+  "owner_username": "Alice",
   "type": "wall",
-  "net_id": 10001,
-  "pos": Vector2(100, 50),
-  "extra": {"builder": peer_id}
+  "position_x": 512.0,
+  "position_y": 300.0,
+  "health": 200.0,
+  "created_at": 1234567890
 }
 ```
 
-**Client receives (in snapshots):**
-```gdscript
-state = {"h": 150.0}  # Only health, no position
-```
+### Future: SQLite Migration
 
-**Client processing:**
-1. At spawn: Set position ONCE, add physics collision
-2. In snapshots:
-   - Check if health decreased (bullet damage)
-   - Update health value
-   - **Skip interpolation buffer entirely**
-   - **Skip interpolation loop**
-
-**Why NO interpolation?**
-- Walls never move after placement (static geometry)
-- Position is set once at spawn, never changes
-- Interpolating a static position wastes CPU
-- Only health changes, and that's applied directly
-- **Performance gain**: ~40-50% fewer entities in interpolation loop
+**Trigger**: When concurrent players exceeds 50  
+**Why**: Better query performance, relational data, concurrent access  
+**Abstraction**: `PersistenceBackend` interface ready for swap
 
 ---
 
-### Bullets (Client-Predicted)
+## File Structure
 
-**Server sends:**
-- Spawn RPC (net_id, position, direction, owner, damage)
-- Despawn RPC (when bullet expires or hits)
-
-**Client receives (at spawn):**
-```gdscript
-{
-  "type": "bullet",
-  "net_id": 5001,
-  "pos": Vector2(150, 75),
-  "extra": {"dir": Vector2(1, 0), "owner": peer_id, "damage": 25.0}
-}
 ```
-
-**Client processing:**
-1. Client already spawned predicted bullet instantly (at shoot time)
-2. Server spawn RPC arrives slightly later
-3. **Client ignores server bullet spawn** (already has predicted one)
-4. Server bullet despawn RPC → Client removes bullet
-
-**Why pure prediction?**
-- Shooting needs instant visual feedback (0ms latency)
-- Prediction is 100% accurate (deterministic movement)
-- Server validates all damage (prevents cheating)
-- No reconciliation needed (bullets are fire-and-forget)
-
-**Code flow:**
-```gdscript
-# Client side (instant)
-if btn & BTN_SHOOT:
-  _spawn_predicted_bullet(pos, aim_dir, damage)  # Instant!
-
-# Server side (validated)
-if btn & BTN_SHOOT:
-  _spawn_bullet(pos, aim_dir, owner, damage)      # Authoritative
-  Net.spawn_entity.rpc(...)                        # Tell clients
+scripts/
+├── Bootstrap.gd                  # Entry point (--server/--client)
+├── systems/
+│   └── Log.gd                    # Logging system (autoload)
+├── shared/
+│   ├── NetworkedEntity.gd        # Component (RefCounted)
+│   ├── ReplicationManager.gd     # Entity registry (autoload)
+│   ├── GameConstants.gd          # Shared constants
+│   └── WeaponData.gd             # Weapon definitions
+├── entities/
+│   ├── Player.gd                 # CharacterBody2D
+│   ├── Enemy.gd                  # CharacterBody2D
+│   ├── Wall.gd                   # StaticBody2D
+│   └── Bullet.gd                 # Node2D
+├── components/
+│   └── Weapon.gd                 # Weapon system
+├── server/
+│   └── ServerMain.gd             # Authoritative simulation
+├── client/
+│   └── ClientMain.gd             # Prediction + interpolation
+├── net/
+│   └── Net.gd                    # Network transport (autoload)
+└── persistence/
+    ├── Persistence.gd            # Persistence API (autoload)
+    ├── PersistenceBackend.gd     # Interface
+    └── JSONBackend.gd            # JSON implementation
 ```
 
 ---
 
-### Local Player (Hybrid)
+## Network Protocol
 
-**Server sends:**
-- All state (position, rotation, health, stamina, weapon, etc)
+### RPCs (Remote Procedure Calls)
 
-**Client receives:**
+**Client → Server:**
+- `server_receive_input(cmd)` - Unreliable, every frame
+- `server_receive_username(username)` - Reliable, once on connect
+
+**Server → Client:**
+- `client_receive_snapshot(snap)` - Unreliable, 60 FPS
+- `client_receive_ack(ack)` - Unreliable, 60 FPS
+- `client_spawn_player(payload)` - Reliable, on player connect
+- `client_despawn_player(peer_id)` - Reliable, on player disconnect
+- `spawn_entity(data)` - Reliable, for enemies/walls/bullets
+- `despawn_entity(net_id)` - Reliable, for entity destruction
+- `client_receive_static_snapshot(states)` - Reliable, every 5 seconds
+
+### Transport Layer
+
+**Dual Protocol Support:**
+- **WebSocket** (default): For web builds, Railway deployment
+- **ENet**: For native builds, local testing
+
+**Configuration:**
 ```gdscript
-state = {"p": Vector2(...), "r": 0.5, "h": 100.0, "v": Vector2(...), "s": 50.0, "w": {...}}
-```
-
-**Client processing:**
-1. **DO NOT** add to interpolation buffer (we predicted it)
-2. Apply health immediately (server is authoritative)
-3. Store in `_last_server_state` for reconciliation
-4. When ACK arrives: compare predicted position vs server position
-5. If mismatch > threshold: rewind + replay
-
-**Why special handling?**
-- We have the input (we sampled it)
-- We predicted the motion already
-- Server state is used only for validation and correction
-- Health is applied immediately (no prediction race condition)
-
----
-
-## Snapshot Build Process (Server)
-
-```gdscript
-func _physics_process(_delta):
-  # 1. Simulate everything
-  for peer_id in _players:
-    player.apply_input(mv, aim, btn, dt)    # From client input
-  
-  for enemy in _enemies:
-    enemy._update_ai()                      # Server AI runs
-  
-  # 2. Build snapshot
-  var states = Replication.build_snapshot() # Calls get_replicated_state() on each entity
-  
-  var snapshot = {
-    "tick": _server_tick,
-    "states": states                        # Dictionary of net_id -> state
-  }
-  
-  # 3. Broadcast
-  Net.client_receive_snapshot.rpc(snapshot) # All clients
-  
-  for peer_id in Net.get_peers():
-    var ack = {"tick": _server_tick, "ack_seq": _last_seq[peer_id]}
-    Net.client_receive_ack.rpc_id(peer_id, ack)
-```
-
-**Key point:** `Replication.build_snapshot()` iterates all entities, calls their `get_replicated_state()`, and returns a flat dictionary. Entities filter themselves (walls only include health, bullets aren't included, etc).
-
----
-
-## Snapshot Apply Process (Client)
-
-```gdscript
-func _on_snapshot(snap: Dictionary):
-  _latest_tick = snap["tick"]
-  var states = snap["states"]
-  
-  for net_id_str in states:
-    var net_id = int(net_id_str)
-    var state = states[net_id_str]
-    var entity = Replication.get_entity(net_id)
-    
-    # Local player: store for reconciliation, apply health only
-    if net_id == _my_id:
-      _last_server_state = state
-      _my_player.health = state["h"]
-      continue
-    
-    # Bullets: skip (client-predicted)
-    if entity is Bullet:
-      continue
-    
-    # Walls: apply health only, no buffer
-    if entity is Wall:
-      entity.health = state["h"]
-      continue
-    
-    # Remote players & enemies: buffer for interpolation
-    _snap_buffers[net_id].append({"tick": _latest_tick, "state": state})
-```
-
-This is the critical branching logic that determines how each entity type is treated.
-
-
-```
-TICK 0  │ Client samples input, predicts locally, sends to server
-        │ Server receives nothing yet
-TICK 1  │ Server simulates players, enemies, bullets (using TICK 0 input)
-        │ Server builds snapshot of all entities
-        │ Server broadcasts snapshot + ACK
-TICK 2  │ Client receives snapshot (tick 1 server state)
-        │ Client stores for local player reconciliation
-        │ Client buffers remote entities for interpolation
-TICK 4  │ Client interpolates remote entities between buffered snapshots
-        │ Renders at (latest_tick - 2) for smooth motion
+# GameConstants.gd
+const USE_WEBSOCKET: bool = true
 ```
 
 ---
 
-## Critical Systems
+## Performance Optimizations
 
-### Client-Side Prediction (ClientMain.gd)
+### Current Optimizations
 
-**Local Player Only**
-- Apply input immediately (no wait for server)
-- Store predicted state for each input sequence
-- Detect position mismatch from server ACK
-- If error > threshold: rewind + replay inputs
+1. **Wall Static Snapshot**: Walls sent separately every 5s (reliable) instead of every frame
+2. **Entity Culling**: Bullets skip interpolation entirely
+3. **Snapshot Buffering**: Only keep last 40 snapshots per entity
+4. **Input Buffering**: Only keep last 256 pending inputs
 
-**Code Flow**
-```gdscript
-_send_and_predict(dt):
-  1. Sample input (movement, aim, buttons)
-  2. Send input RPC to server
-  3. Apply input locally (player.apply_input)
-  4. Store predicted state (_predicted_states[seq])
-  5. Keep in _pending_inputs for replay if needed
+### Future Optimizations (Not Yet Implemented)
+
+1. **Spatial Partitioning**: Chunk-based entity queries (when >200 entities)
+2. **Interest Management**: Only sync nearby entities
+3. **Snapshot Compression**: Delta compression for states
+4. **Object Pooling**: Reuse bullet/particle objects
+
+---
+
+## Testing & Debugging
+
+### Local Testing
+
+```bash
+# Start server + 3 clients
+start_test_session.bat
+
+# Single client to localhost
+run_client_local.bat Alice
 ```
 
-### Server Reconciliation (ServerMain.gd)
+### Debug Overlays
 
-**Authoritative Simulation**
-- Receive client input via `_on_input_received()`
-- Simulate: players (from input), enemies (AI), bullets, walls
-- Build snapshot: `Replication.build_snapshot()`
-- Broadcast to all clients
-- Send per-client ACK with last input sequence
+**F3**: Network diagnostics
+- FPS (60-sample average)
+- Tick interval (snapshot rate)
+- Ping (round-trip every 10th input)
+- Packet loss (snapshot delivery %)
+- Reconciles/sec
+- Entity counts
 
-**Persistence**
-- Auto-save every 30 seconds (`_autosave_all()`)
-- Save on disconnect (`_save_player()`)
-- Load structures at startup (`_load_all_structures()`)
+**F4**: Collision visualization (Godot built-in)
+- Blue boxes: collision shapes
+- Red lines: raycasts
 
-### Interpolation (ClientMain.gd)
+### Admin Commands (Server Only)
 
-**Remote Entities (not local player, not walls)**
-- Buffer snapshots: `_snap_buffers[net_id] = [{tick, state}, ...]`
-- Render tick: `latest_tick - INTERP_DELAY_TICKS` (2-tick delay)
-- Lerp position/rotation between surrounding snapshots
-- Apply health/velocity directly (no lerp)
+- **F5**: Wipe all structures
+- **F6**: Wipe all player data
+- **F7**: Show persistence stats
 
 ---
 
-## Replication Contract
+## Known Limitations
 
-Every networked entity must implement:
-
-```gdscript
-func get_replicated_state() -> Dictionary
-  # Return dict of state to sync (keys: "p"=position, "r"=rotation, "h"=health, etc)
-
-func apply_replicated_state(state: Dictionary) -> void
-  # Apply server state to this entity
-  # Called by client during interpolation and reconciliation
-```
-
-**Auto-registration**: Entity calls `super._ready()` to auto-register with `Replication`.
+1. **World Size**: 1024x600 (small map)
+2. **Player Capacity**: ~50 concurrent (JSON backend)
+3. **No Spatial Audio**: Sound system not yet implemented
+4. **No Fog of War**: Vision system not yet implemented
+5. **Single Server**: No horizontal scaling
 
 ---
 
-## Authority Model
+## Future Architecture Plans
 
-```gdscript
-entity.authority == 1           # Server owns (all players, enemies, bullets, walls)
-entity.authority == peer_id     # Client owns for prediction (local player only)
+### Phase 2: Fog of War (Week 3)
+- Raycasting for line-of-sight
+- Client-side visibility culling
+- Layer 7 (FOG_BLOCKER) for smoke grenades
 
-# Check authority:
-if entity.is_authority():       # True if I control this entity
-  # Can apply local prediction
-```
+### Phase 3: Sound System (Week 4)
+- Gunshot proximity alerts
+- Wall muffling (raycast-based)
+- Enemy investigation AI
+
+### Phase 4: Advanced Interaction (Week 5)
+- E-key raycasting for pickup
+- Door/workbench interaction
+- Layer 6 (INTERACTION) for usable objects
+
+### Phase 5: Map Expansion (Week 6+)
+- Lawfulness zones (Safe/Neutral/Lawless)
+- Territory control points
+- Larger world (4096x4096)
 
 ---
 
-## Performance Targets
+## Design Philosophy
 
-- **Tick Rate**: 60 FPS (16.67ms per tick)
-- **Snapshot Buffer**: 40 snapshots (~666ms history)
-- **Pending Input Buffer**: 256 inputs (~4.2s max)
-- **Reconciliation Threshold**: 5 units (position error)
-- **Interpolation Delay**: 2 ticks (~33ms)
+**Authoritative Server**: Server is source of truth, client predicts for responsiveness  
+**Component Pattern**: Composition over inheritance for flexibility  
+**Godot-Idiomatic**: Use engine features as intended (physics bodies, move_and_slide)  
+**Simplicity**: Minimize complexity, avoid clever hacks  
+**Performance**: Optimize only when proven necessary  
 
 ---
 
-## Common Workflows
+## Version History
 
-### Add New Networked Entity Type
-
-1. Create `scripts/entities/MyEntity.gd` extending `NetworkedEntity`
-2. Implement `get_replicated_state()` and `apply_replicated_state()`
-3. Server spawns via `Replication.register(entity)`
-4. Server broadcasts spawn via `Net.spawn_entity.rpc(payload)`
-5. Client receives spawn, instantiates, applies initial state
-
-### Add New Player Field
-
-1. Add to `Player.get_replicated_state()` with short key (e.g., "s" for stamina)
-2. Add to `Player.apply_replicated_state()` to restore it
-3. Field now syncs automatically every snapshot
-
-### Debug Network Issues
-
-- Press **F3** for network overlay (FPS, ping, reconciles/sec, entity counts)
-- Enable logging: `Log.network()`, `Log.entity()`, `Log.reconcile()`
-- Check `GameConstants.RECONCILE_POSITION_THRESHOLD` and `INTERP_DELAY_TICKS`
-
+- **Session #1-3**: Initial prototype, weapons, enemies
+- **Session #4**: Persistence + username system
+- **Session #5**: Component refactor + collision system
+- **Session #6**: Loot & inventory (planned)

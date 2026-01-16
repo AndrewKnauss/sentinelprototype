@@ -3,6 +3,27 @@
 ## Purpose
 These documents define major gameplay systems with implementation details, API usage, and integration points. Each is self-contained for independent development.
 
+## Core Documentation
+
+### [Architecture](ARCHITECTURE.md)
+**Priority**: CRITICAL (read this first)  
+**Complexity**: Comprehensive
+
+Complete technical architecture documentation covering:
+- Component-based networking pattern
+- Entity types and physics bodies
+- Client-side prediction and reconciliation
+- Server-authoritative simulation
+- Replication system
+- Collision layers and movement
+- Persistence system
+- Network protocol
+- File structure
+
+**This is the definitive reference for how the game works.**
+
+---
+
 ## Core Systems
 
 ### 1. [Loot System](systems/LOOT_SYSTEM.md)

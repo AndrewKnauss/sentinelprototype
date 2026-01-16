@@ -101,21 +101,31 @@ func _check_collision():
 - Still blocks each from walking through walls
 
 **Architecture Note:**
-- `NetworkedEntity` extends `Node2D` (not CharacterBody2D)
-- Player/Enemy create a CharacterBody2D child for collision
-- **CRITICAL PATTERN**: Child collision body always stays at position (0,0) relative to parent
-- **Movement flow to prevent teleporting**:
-  1. Call `move_and_collide()` on child body to detect collisions
-  2. Read child's local position change (how far it actually moved)
-  3. Apply that delta to parent's global position: `global_position += _collision_body.position`
-  4. Reset child position to (0,0): `_collision_body.position = Vector2.ZERO`
-- **Why this works**: Parent is source of truth. Child only tests collisions, never accumulates position
-- **What breaks**: Setting `global_position = _collision_body.global_position` creates feedback loop (child moves relative to parent, parent copies child's global pos, next frame child is offset again → spiral/teleport)
+- **Component-based networking** (refactored in Session #5)
+- `NetworkedEntity` is a **RefCounted component**, not a base class
+- Entities extend their proper physics body types:
+  - `Player` extends `CharacterBody2D`
+  - `Enemy` extends `CharacterBody2D`
+  - `Wall` extends `StaticBody2D`
+  - `Bullet` extends `Node2D` (uses raycasting)
+- Each entity has `net_entity: NetworkedEntity` component for replication
+- **Movement pattern**:
+  ```gdscript
+  # Clean and simple - native Godot physics
+  velocity = movement * speed
+  move_and_slide()  # That's it!
+  ```
+- **No position syncing** - entities ARE their physics bodies
+- **Why this works**: 
+  - Parent entity owns physics behavior completely
+  - NetworkedEntity component only handles replication
+  - No parent-child position feedback loops
+  - Godot-idiomatic (composition over inheritance)
 
-**Why not extend CharacterBody2D directly?**
-- Different entity types need different physics bodies (CharacterBody2D, StaticBody2D, Area2D)
-- NetworkedEntity provides common replication interface
-- Composition over inheritance keeps system flexible
+**Why not extend CharacterBody2D directly in base class?**
+- Different entities need different physics body types
+- Component pattern keeps system flexible and clean
+- Easy to add non-networked entities
 
 ---
 
@@ -372,25 +382,27 @@ func _input(event):
 
 ## Known Issues & Solutions
 
-### Issue: Enemies teleporting or moving in circles
-**Cause**: Incorrect position sync pattern - copying `_collision_body.global_position` to parent creates feedback loop  
-**Symptom**: Entities spiral outward, teleport randomly, or orbit around their spawn point  
-**Root cause**: In Godot, child positions are relative to parent. When you:
-1. Call `move_and_collide()` on child → child's local position changes
-2. Copy `global_position = child.global_position` → parent moves
-3. Next frame: child is now offset from parent's new position
-4. Repeat → exponential spiral/teleport
+### Issue: Entities teleporting or moving in circles (FIXED in Session #5)
+**Cause**: Old architecture used parent-child pattern with position syncing  
+**Solution**: Complete refactor to component pattern
+- Changed `NetworkedEntity` from Node2D base class to RefCounted component
+- Entities now extend their physics bodies directly (CharacterBody2D, StaticBody2D)
+- Movement uses native `move_and_slide()` with no position syncing
+- Eliminated parent-child feedback loops entirely
 
-**Solution**: Parent is source of truth, child always stays at (0,0)
+**Old broken pattern (Session #5 initial attempt):**
 ```gdscript
 # WRONG - creates feedback loop
 var collision = _collision_body.move_and_collide(motion)
 global_position = _collision_body.global_position  # BAD!
+# Next frame: child offset from parent → spiral/teleport
+```
 
-# CORRECT - parent accumulates movement
-var collision = _collision_body.move_and_collide(motion)
-global_position += _collision_body.position  # Add delta
-_collision_body.position = Vector2.ZERO       # Reset to center
+**Current clean pattern:**
+```gdscript
+# CORRECT - entity IS the physics body
+velocity = movement * speed
+move_and_slide()  # Simple, clean, no syncing needed
 ```
 
 ### Issue: Players getting stuck in walls after lag spike

@@ -24,16 +24,23 @@
 - [x] Admin commands (F5/F6/F7)
 - [x] Abstraction layer for future SQLite migration
 
-### Session 5: Username & Authentication ✅ COMPLETE
-- [x] **Username system** (player identity across reconnects)
-- [x] UsernameValidator (3-16 chars, alphanumeric + underscore, reserved names)
-- [x] Server-side validation (prevent duplicate usernames)
-- [x] Persistence key changes (username instead of peer_id)
-- [x] Player label shows username
-- [x] Username sync in snapshots
-- [x] UI improvements (anchor-based positioning for debug/ammo labels)
-- [x] UsernameDialog for username input
-- [x] **Collision System (Phase 1)** - Walls block movement, slide behavior
+### Session 5: Collision System & Component Refactor ✅ COMPLETE
+- [x] **MAJOR ARCHITECTURAL REFACTOR**: Component-based networking
+  - NetworkedEntity changed from Node2D base class to RefCounted component
+  - All entities extend their proper physics bodies directly:
+    - Player extends CharacterBody2D
+    - Enemy extends CharacterBody2D  
+    - Wall extends StaticBody2D
+    - Bullet extends Node2D (raycasting)
+  - Entities hold `net_entity: NetworkedEntity` component for replication
+  - Movement uses native `move_and_slide()` - simple and clean
+  - Eliminated parent-child position syncing completely
+- [x] **Collision System (Phase 1)** - Walls block movement
+  - Collision layers configured (STATIC, PLAYER, ENEMY, PROJECTILE)
+  - Wall sliding behavior (players/enemies slide along walls)
+  - Phase-through behavior (players walk through enemies, prevents body-blocking)
+  - Fixed teleporting/circular movement bugs caused by position feedback loops
+- [x] Design doc created: `docs/systems/COLLISION.md`
 
 ### Session 6: Loot & Inventory
 - [ ] **Item system** (ItemData definitions) - See `LOOT_SYSTEM.md`

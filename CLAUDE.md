@@ -194,27 +194,29 @@ run_client_local.bat     # Single client → localhost
 
 ## Recent Changes
 
-**Session #5 - Collision System (Phase 1) + Component Refactor**:
-- **MAJOR REFACTOR**: Changed from inheritance to component pattern
-  - `NetworkedEntity` is now a RefCounted component (not Node2D base class)
-  - Entities extend their proper physics bodies directly:
+**Session #5 - Collision System + Component Pattern Refactor**:
+- **MAJOR ARCHITECTURAL REFACTOR**: Complete rewrite to component-based networking
+  - `NetworkedEntity` is now a **RefCounted component** (was Node2D base class)
+  - Entities extend their proper physics body types:
     - `Player` extends `CharacterBody2D`
     - `Enemy` extends `CharacterBody2D`
     - `Wall` extends `StaticBody2D`
     - `Bullet` extends `Node2D` (uses raycasting)
-  - Each entity holds a `net_entity` component for replication
-  - Movement uses native `move_and_slide()` - clean and simple
-  - **NO MORE POSITION SYNCING** - entities are their physics bodies
-- **Wall collision blocking** (walls now block player/enemy movement)
-- **Collision layers** properly configured:
-  - Layer 1 (STATIC): Walls and structures
-  - Layer 2 (PLAYER): Player characters
-  - Layer 3 (ENEMY): AI enemies (using bit value 4)
-  - Layer 4 (PROJECTILE): Bullets (raycast-based)
-- **Wall sliding** (players/enemies slide along walls instead of stopping)
-- **Phase-through behavior** (players can walk through enemies, prevents body-blocking)
-- **Bug fix**: Eliminated teleporting/circular movement caused by parent-child position feedback
-- Design doc created: `docs/systems/COLLISION.md` (covers future FOG, sound, interaction)
+  - Each entity holds a `net_entity: NetworkedEntity` component for replication
+  - `ReplicationManager` stores components, returns owner nodes
+  - Movement uses native `move_and_slide()` - **NO MORE POSITION SYNCING**
+  - Cleaner separation: physics ownership vs networking concerns
+- **Collision System (Phase 1)** - Walls block movement
+  - Collision layers properly configured:
+    - Layer 1 (STATIC): Walls and structures
+    - Layer 2 (PLAYER): Player characters
+    - Layer 3 (ENEMY): AI enemies (bit value 4)
+    - Layer 4 (PROJECTILE): Bullets (raycast-based)
+  - Wall sliding behavior (smooth movement along walls)
+  - Phase-through behavior (players/enemies don't collide with each other)
+  - **Bug fix**: Eliminated teleporting/circular movement caused by position feedback loops
+- Design doc: `docs/systems/COLLISION.md` (covers future FOG, sound, interaction)
+- **Benefits**: Simpler code, no teleporting, Godot-idiomatic, type-safe, future-proof
 
 **Session #4 - Database Persistence + Username System**:
 - **Username-based identity** (solves peer_id persistence problem)
