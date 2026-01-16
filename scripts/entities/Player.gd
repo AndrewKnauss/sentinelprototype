@@ -8,6 +8,8 @@ class_name Player
 # Uses NetworkedEntity component for replication.
 # =============================================================================
 
+signal dropped_loot(position: Vector2, loot_items: Array)  # Emitted when player dies
+
 # Networking component
 var net_entity: NetworkedEntity = null
 var net_id: int = 0
@@ -215,6 +217,10 @@ func take_damage(amount: float) -> bool:
 	_hurt_flash_timer = 0.2
 	if health <= 0:
 		health = 0
+		# Drop all items on death
+		var items = inventory.get_all_items()
+		if items.size() > 0:
+			dropped_loot.emit(global_position, items)
 		return true
 	return false
 
@@ -224,6 +230,8 @@ func respawn(pos: Vector2) -> void:
 	health = GameConstants.PLAYER_MAX_HEALTH
 	global_position = pos
 	velocity = Vector2.ZERO
+	# Clear inventory on respawn
+	inventory.clear()
 
 
 func get_replicated_state() -> Dictionary:

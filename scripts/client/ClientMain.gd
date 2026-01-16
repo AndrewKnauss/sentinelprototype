@@ -726,11 +726,11 @@ func _update_pickup_prompt() -> void:
 		return
 	
 	# Find nearest item drop within range
-	var nearest: ItemDrop = null
+	var nearest: Node = null  # ItemDrop
 	var nearest_dist = 50.0  # Max pickup range
 	
 	for entity in Replication.get_all_entities():
-		if entity is ItemDrop and entity.visible:  # Skip hidden items
+		if "item_id" in entity and entity.visible:  # ItemDrop check (duck typing)
 			var dist = player.global_position.distance_to(entity.global_position)
 			if dist < nearest_dist:
 				nearest_dist = dist
@@ -751,11 +751,11 @@ func _try_pickup_nearest_item() -> void:
 		return
 	
 	# Find nearest item drop within range
-	var nearest: ItemDrop = null
+	var nearest: Node = null  # ItemDrop
 	var nearest_dist = 50.0  # Max pickup range
 	
 	for entity in Replication.get_all_entities():
-		if entity is ItemDrop:
+		if "item_id" in entity:  # ItemDrop check (duck typing)
 			var dist = player.global_position.distance_to(entity.global_position)
 			if dist < nearest_dist:
 				nearest_dist = dist

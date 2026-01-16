@@ -102,8 +102,8 @@ func _check_collision() -> bool:
 		var result = space.intersect_ray(query)
 		if result:
 			var collider = result.get("collider")
-			# Collider IS the Wall (StaticBody2D)
-			if collider and collider.get_script() == preload("res://scripts/entities/Wall.gd"):
+			# Check if collider has wall properties (duck typing)
+			if collider and "builder_id" in collider:
 				_on_hit_wall(collider)
 				return true
 	

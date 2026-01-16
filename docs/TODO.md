@@ -48,18 +48,23 @@
 - [x] Inventory component (20 slots)
 - [x] E-key pickup interaction (with client prediction)
 - [x] Pickup UI prompt (yellow "[E] Item Name x5")
-- [ ] Drop on death (deferred to Session 7)
-- [ ] Inventory UI (grid display - deferred to Session 7)
+- [x] Duck typing for entity type checks (Player, Enemy, Wall)
 
-### Session 7: Inventory UI + Drop on Death
-- [ ] Inventory grid UI (I key toggle, 4x5 grid)
-- [ ] Item tooltips (name, type, rarity, description)
-- [ ] Drop on player death (scatter items around corpse)
-- [ ] Admin commands (F8 give items, F9 clear inventory)
-- [ ] Console commands (`/give item_id quantity`)
-- [ ] Inventory persistence (save/load on connect/disconnect)
+### Session 7: Inventory Persistence ✅ COMPLETE  
+- [x] Drop on death (scatter items in circle around corpse)
+- [x] Inventory persistence (save/load on connect/disconnect)
+- [x] JSON backend for inventory storage
+- [x] Autosave includes inventory
+- [ ] Inventory UI (grid display - deferred to Session 8)
 
-### Session 8: Base Building
+### Session 7: Inventory Persistence ✅ COMPLETE  
+- [x] Drop on death (scatter items in circle around corpse)
+- [x] Inventory persistence (save/load on connect/disconnect)
+- [x] JSON backend for inventory storage
+- [x] Autosave includes inventory
+- [ ] Inventory UI (grid display - deferred to Session 8)
+
+### Session 8: Inventory UI + Admin Tools
 - [ ] **Tool Cupboard** (ownership, authorization) - See `BASE_BUILDING.md`
 - [ ] Building grid (local to cupboard, not world-global)
 - [ ] Building mode (B key, ghost preview, rotation)

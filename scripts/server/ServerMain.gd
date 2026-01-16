@@ -385,9 +385,14 @@ func _on_username_received(peer_id: int, username: String) -> void:
 	_last_input[peer_id] = {}
 	_last_seq[peer_id] = 0
 	
-	# TODO: Load inventory when system exists
-	# var inv_slots = Persistence.load_inventory(peer_id)
-	# player.inventory.load_from_array(inv_slots)
+	# Connect drop-on-death signal
+	player.dropped_loot.connect(_on_player_dropped_loot)
+	
+	# Load inventory from database
+	var inv_slots = Persistence.load_inventory(normalized)
+	if inv_slots.size() > 0:
+		player.inventory.slots = inv_slots
+		Log.network("Loaded %d inventory slots for '%s'" % [inv_slots.size(), normalized])
 	
 	# Initial save (creates DB entry if new)
 	_save_player(player)
@@ -452,8 +457,7 @@ func _on_peer_disconnected(peer_id: int) -> void:
 		
 		# SAVE ON DISCONNECT
 		_save_player(player)
-		# TODO: Save inventory when system exists
-		# Persistence.save_inventory(username, player.inventory.get_slots())
+		Persistence.save_inventory(username, player.inventory.slots)
 		
 		Log.network("Saved player '%s' (peer %d) on disconnect" % [username, peer_id])
 		
@@ -497,6 +501,22 @@ func _on_enemy_dropped_loot(position: Vector2, loot_items: Array) -> void:
 	for loot in loot_items:
 		if loot.has("item_id") and loot.has("quantity"):
 			_spawn_item_drop(position, loot.item_id, loot.quantity)
+
+
+func _on_player_dropped_loot(position: Vector2, loot_items: Array) -> void:
+	"""Handle loot drops from player death."""
+	# Scatter items in a circle around death position
+	var angle_step = TAU / max(loot_items.size(), 1)
+	var radius = 30.0
+	
+	for i in range(loot_items.size()):
+		var loot = loot_items[i]
+		if loot.has("item_id") and loot.has("quantity"):
+			var angle = i * angle_step
+			var offset = Vector2(cos(angle), sin(angle)) * radius
+			_spawn_item_drop(position + offset, loot.item_id, loot.quantity)
+	
+	Log.entity("Player died, dropped %d item stacks" % loot_items.size())
 
 
 func _spawn_item_drop(pos: Vector2, item_id: String, quantity: int) -> void:
@@ -648,7 +668,7 @@ func _autosave_all() -> void:
 	for peer_id in _players:
 		var player = _players[peer_id]
 		_save_player(player)
-		# TODO: Save inventory when system exists
+		Persistence.save_inventory(player.username, player.inventory.slots)
 	
 	# Save all structures
 	for wall in _walls:
